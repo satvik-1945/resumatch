@@ -218,3 +218,14 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Web and local artifacts
+node_modules/
+.next/
+.next-e2e/
+*.tsbuildinfo
+.env.*
+!.env.example
+.local/
+playwright-report/
+test-results/

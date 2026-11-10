@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Outreach capture",
+  "version": "0.3.0",
+  "description": "Explicitly capture a page and selected text into your private outreach session.",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": ["http://127.0.0.1:8000/*", "http://localhost:8000/*", "http://127.0.0.1:8001/*"],
+  "action": { "default_popup": "popup.html", "default_title": "Capture for outreach review" },
+  "background": { "service_worker": "background.js" },
+  "commands": { "_execute_action": { "suggested_key": { "default": "Alt+Shift+L" }, "description": "Open outreach capture" } }
+}
