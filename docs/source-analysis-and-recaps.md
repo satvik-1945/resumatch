@@ -1,5 +1,10 @@
 # Source analysis and session recaps
 
+**Current UI:** parent workflows and **Process with AI** over one **Raw capture text** input have
+replaced the separate Source text & analysis panel described below. See [workflows.md](workflows.md).
+The earlier analysis contract/route remains compatible with stored historical analysis; the recap
+snapshot and optional observation boundaries below still apply. Do not rebuild the old panel.
+
 ## Explicit source-text analysis
 
 On a pending capture in **Finish & review**, paste/edit up to 4,000 characters in **Source text**
@@ -57,9 +62,11 @@ and `Role:` lines; it is not presented as an LLM result. Stored suggestions reco
 Successful identical-source analysis is cached to avoid repeated calls. Failed/local analysis can
 be retried once configuration is corrected. Provider bodies/keys are not returned in errors.
 
-One bounded live test used synthetic text against OpenAI. The stored key was rejected for
-credentials/access; **no successful live LLM result was established**. No real contact text was
-sent in that smoke check. Replace the key in ignored `.env` and restart the API before retrying.
+The initial live synthetic check was rejected for credentials/access. After the user rotated the
+key, a second bounded synthetic source-analysis check returned method `llm`, model `gpt-4.1-mini`,
+and no warning. No real contact text was sent. The local API was restarted to load the rotated
+key. Live source analysis is verified; real-user review and live recap observations are separate
+usage checks. Restart the API whenever changing ignored `.env` configuration.
 
 ## Structured completed-session recap
 

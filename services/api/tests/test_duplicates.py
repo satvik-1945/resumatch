@@ -72,7 +72,7 @@ def test_update_capture_keeps_original_and_reminder_appears_after_review(client,
     })
     assert other.put(path, json={"details": details}).status_code == 404
     client.post(f"/api/sessions/{sid}/transition", json={"action": "finish"})
-    assert client.put(path, json={"details": details}).status_code == 409
+    assert client.put(path, json={"details": details}).status_code == 200
     assert client.post(path + "/review", json={
         "decision": "approved", "confirmed_action": True, "details": details
     }).status_code == 200

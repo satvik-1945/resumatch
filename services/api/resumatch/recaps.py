@@ -11,13 +11,15 @@ from sqlalchemy import select
 from resumatch.duplicates import normalized_name, profile_identity
 from resumatch.models import Capture, SessionRecap
 
-ACTIONS = ("researched", "drafted", "sent", "followed_up", "replied")
+ACTIONS = ("researched", "drafted", "connection_requested", "sent", "followed_up", "replied")
 
 
 class ActivitySnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid")
     capture_id: UUID
-    action: Literal["researched", "drafted", "sent", "followed_up", "replied"]
+    action: Literal[
+        "researched", "drafted", "connection_requested", "sent", "followed_up", "replied"
+    ]
     channel: str
     person: str
     company: str
@@ -26,6 +28,7 @@ class ActivitySnapshot(BaseModel):
     source_text: str
     occurred_at: str
     followup_on: str | None
+    fields: dict = {}
 
 
 class RecapPayload(BaseModel):
@@ -47,9 +50,14 @@ class RecapPayload(BaseModel):
     highlights: list[str]
     limitations: list[str]
     activities: list[ActivitySnapshot]
+    workflow_id: UUID | None = None
+    workflow_name: str | None = None
+    workflow_version: int | None = None
+    run_name: str | None = None
 
 
 def ensure_recap(db, session):
+    from resumatch.models import Workflow
     existing = db.get(SessionRecap, session.id)
     if existing:
         return existing
@@ -71,10 +79,14 @@ def ensure_recap(db, session):
     if counts["replied"]:
         word = "reply" if counts["replied"] == 1 else "replies"
         highlights.append(f"{counts['replied']} {word} recorded by you.")
-    if not counts["sent"] and not counts["followed_up"] and not counts["replied"]:
+    if counts["connection_requested"]:
+        highlights.append(f"{counts['connection_requested']} connection requests confirmed by you.")
+    if not any(counts[k] for k in ("sent", "followed_up", "replied", "connection_requested")):
         highlights.append("Preparation is progress. Research and drafts are not contact.")
     payload = RecapPayload(
         session_id=session.id, intention=session.intention, generated_at=datetime.now(UTC),
+        workflow_id=session.workflow_id, workflow_name=db.get(Workflow, session.workflow_id).name,
+        workflow_version=session.workflow_version, run_name=session.run_name,
         completed_at=session.completed_at, session_seconds=session.elapsed_seconds,
         target_minutes=session.target_minutes, approved_records=len(approved),
         discarded_records=sum(c.decision == "discarded" for c in captures),
@@ -93,6 +105,7 @@ def ensure_recap(db, session):
             source_url=c.details["source_url"], notes=c.details["notes"],
             source_text=c.details["quote"], occurred_at=c.details["occurred_at"],
             followup_on=c.details.get("followup_on"),
+            fields=c.details.get("fields", {}),
         ) for c in approved],
     )
     recap = SessionRecap(session_id=session.id, payload=payload.model_dump(mode="json"))

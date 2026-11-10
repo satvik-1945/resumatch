@@ -16,5 +16,15 @@ services:
       interval: 3s
       timeout: 3s
       retries: 20
+  db-ui:
+    image: adminer:5
+    restart: unless-stopped
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+    ports:
+      - "127.0.0.1:${DB_UI_PORT:-8082}:8080"
+    depends_on:
+      db:
+        condition: service_healthy
 volumes:
   postgres_data:

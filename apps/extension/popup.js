@@ -1,7 +1,7 @@
 import { contextForTab, isLinkedIn, readPageContext } from "./capture.js";
 
 const el = id => document.getElementById(id);
-const ids = ["source_url", "source_title", "quote", "person", "company", "channel", "action", "notes", "followup_on"];
+const ids = ["source_url", "person", "company", "channel", "action", "notes", "followup_on"];
 let config = {};
 let session = null;
 let draft = null;
@@ -37,7 +37,15 @@ function modeNotice(url) {
   el("mode-notice").hidden = !isLinkedIn(url);
   el("mode-notice").textContent = "LinkedIn · manual logging only. No HTML, profile text, page title or selected text is read. Enter your own notes; this is not a LinkedIn-approved integration.";
 }
-function showDraft() { for (const id of ids) el(id).value = draft?.details[id] || ""; modeNotice(draft?.details.source_url); }
+function showDraft() {
+  if (draft) {
+    const d = draft.details;
+    d.notes = (d.notes + (d.quote && !d.notes.includes(d.quote) ? `\n\n${d.quote}` : "")).trim();
+    d.quote = "";
+  }
+  for (const id of ids) el(id).value = draft?.details[id] || "";
+  modeNotice(draft?.details.source_url);
+}
 async function sourceTab() {
   if (floating) {
     const [tab] = await chrome.tabs.query({ active: true, windowId: Number(params.get("sourceWindow")) });
@@ -70,7 +78,7 @@ async function refresh() {
     el("api").value = config.api || "http://127.0.0.1:8000";
     if (!config.token) { el("settings").open = true; el("session").textContent = "Pair your browser, then start a session in the app."; return; }
     session = (await request("/extension/session")).session;
-    el("session").textContent = session ? `${session.intention} · ${session.state}` : "Start a session in the app, then refresh here.";
+    el("session").textContent = session ? `${session.workflow_name || session.intention} / ${session.run_name || "Current run"} · ${session.state}` : "Start a run in the app, then refresh here.";
     if (session?.state !== "active") return;
     if (draft && draft.sessionId !== session.id) {
       el("status").textContent = "A draft from an earlier session is still on this browser. Start a new page capture to replace it.";

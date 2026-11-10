@@ -16,14 +16,15 @@
 </details>
 <section id="session"></section>
 <form id="capture-form" hidden>
-  <label>Source URL<input id="source_url" type="url" required maxlength="2000"></label>
-  <details><summary>Page title & source text (optional)</summary><label>Page title<input id="source_title" maxlength="500"></label>
-  <label>Selected text<textarea id="quote" maxlength="4000" rows="3"></textarea></label></details>
+  <label>Contact URL<input id="source_url" type="url" required maxlength="2000"></label>
+  <label>Raw capture text<textarea id="notes" rows="8" maxlength="16000" placeholder="Paste the profile snippet, conversation context, or your rough notes. Process with AI in the run fills its configured fields."></textarea></label>
+  <p>Your workflow’s fields are filled from this text in the app. Unknown values can stay blank.</p>
+  <details><summary>Known details & activity (optional)</summary>
   <div class="grid"><label>Person<input id="person" maxlength="200" placeholder="If known"></label><label>Company<input id="company" maxlength="200" placeholder="If known"></label></div>
-  <div class="grid"><label>Action<select id="action"><option value="researched">Researched</option><option value="drafted">Drafted</option><option value="sent">Sent</option><option value="followed_up">Followed up</option><option value="replied">Reply received</option></select></label>
+  <div class="grid"><label>Action<select id="action"><option value="researched">Researched</option><option value="drafted">Drafted</option><option value="connection_requested">Connection request sent</option><option value="sent">Sent</option><option value="followed_up">Followed up</option><option value="replied">Reply received</option></select></label>
   <label>Channel<select id="channel"><option value="linkedin">LinkedIn</option><option value="web">Website / news</option><option value="email">Email</option><option value="x">X / Twitter</option><option value="other">Other</option></select></label></div>
-  <label>Note<textarea id="notes" rows="2" maxlength="2000" placeholder="Why this person or company? Next step?"></textarea></label>
   <label>Follow-up reminder<input id="followup_on" type="date"></label>
+  </details>
   <div class="save-actions"><button id="capture-submit">Capture for review</button></div><button type="button" class="secondary" id="new-page">Discard local draft & use current page</button>
   <p>Nothing is sent to the person. LinkedIn uses manual logging: no page text/title reading, HTML changes, or automation. Other sites support explicit selected-text capture. Review in the app before it counts.</p>
 </form>

@@ -10,9 +10,11 @@ from sqlalchemy.exc import SQLAlchemyError
 from resumatch.auth import DB, BrowserOwner, Owner, digest, require_origin
 from resumatch.duplicates import duplicate_of, same_subject
 from resumatch.intelligence import SourceRequest, analyze_source, configured, reflect_on_recap
-from resumatch.models import Capture, OutreachSession, Pairing, SessionEvent, User
+from resumatch.models import Capture, OutreachSession, Pairing, SessionEvent, User, Workflow
 from resumatch.recaps import ensure_recap
 from resumatch.schemas import CaptureInput, EditCapture, Goal, PairInput, Review, Start, Transition
+from resumatch.workflow_contracts import WorkflowWrite, template
+from resumatch.workflows import create_workflow, definition_for, owned_workflow, validate_fields
 
 router = APIRouter(prefix="/api")
 writes = [Depends(require_origin)]
@@ -47,6 +49,9 @@ def session_view(db, s, include_captures=False):
     if s.state == "active" and s.running_since:
         elapsed += max(0, int((now() - s.running_since).total_seconds()))
     result = {"id": s.id, "intention": s.intention, "state": s.state,
+              "workflow_id": s.workflow_id, "workflow_version": s.workflow_version,
+              "workflow_name": db.get(Workflow, s.workflow_id).name, "run_name": s.run_name,
+              "field_definition": definition_for(db, s)["fields"],
               "target_minutes": s.target_minutes, "elapsed_seconds": elapsed,
               "started_at": s.started_at, "finished_at": s.finished_at,
               "completed_at": s.completed_at, "approved_count": len(approved),
@@ -77,7 +82,7 @@ def ready(db: DB):
     try:
         revision = db.scalar(text("SELECT version_num FROM alembic_version"))
         db.execute(select(OutreachSession.id).limit(0))
-        if revision != "0002_analysis_recaps":
+        if revision != "0003_workflows":
             raise HTTPException(503, "Run uv run alembic upgrade head")
     except SQLAlchemyError:
         raise HTTPException(503, "Check database connection and run migrations") from None
@@ -92,7 +97,17 @@ def start(body: Start, user: Owner, db: DB):
         OutreachSession.user_id == user.id, OutreachSession.state != "completed"
     )):
         raise HTTPException(409, "Finish your current session and review before starting another")
-    session = OutreachSession(user_id=user.id, running_since=now(), **body.model_dump())
+    if body.workflow_id:
+        workflow = owned_workflow(db, user, body.workflow_id)
+    else:
+        # Compatibility for older capture clients: create an owned parent, never orphan runs.
+        workflow = create_workflow(db, user.id, WorkflowWrite(**{
+            **template("founder_connections"), "name": body.intention, "kind": "custom"
+        }))
+    session = OutreachSession(user_id=user.id, running_since=now(), intention=body.intention,
+                              target_minutes=body.target_minutes, workflow_id=workflow.id,
+                              workflow_version=workflow.version,
+                              run_name=body.run_name or now().date().isoformat())
     db.add(session)
     db.flush()
     db.add(SessionEvent(session_id=session.id, action="start"))
@@ -148,7 +163,7 @@ def create_capture(db, user, session_id, body, source):
     count = db.scalar(select(func.count()).select_from(Capture).where(Capture.session_id == s.id))
     if count >= 200:
         raise HTTPException(409, "This session has 200 captures; finish and review it")
-    details = body.details.model_dump(mode="json")
+    details = validate_fields(db, s, body.details.model_dump(mode="json"))
     reject_duplicate(db, s.id, details)
     details["occurred_at"] = details["occurred_at"] or now().isoformat()
     c = Capture(session_id=s.id, request_id=body.request_id, source=source,
@@ -240,9 +255,9 @@ def edit_capture(session_id: UUID, capture_id: UUID, body: EditCapture, user: Ow
     c = db.scalar(select(Capture).where(Capture.id == capture_id, Capture.session_id == s.id))
     if c is None:
         raise HTTPException(404, "Capture not found")
-    if s.state not in {"active", "paused"} or c.decision != "pending":
-        raise HTTPException(409, "Edit pending captures during a session, or use the review screen")
-    details = body.details.model_dump(mode="json")
+    if s.state not in {"active", "paused", "review"} or c.decision != "pending":
+        raise HTTPException(409, "Only pending captures in an open run can be edited")
+    details = validate_fields(db, s, body.details.model_dump(mode="json"))
     reject_duplicate(db, s.id, details, c.id)
     details["occurred_at"] = details["occurred_at"] or c.details["occurred_at"]
     c.details = details
@@ -263,10 +278,12 @@ def review(session_id: UUID, capture_id: UUID, body: Review, user: Owner, db: DB
         raise HTTPException(404, "Capture not found")
     if s.state != "review" or c.decision != "pending":
         raise HTTPException(409, "Only pending captures in a finished session can be reviewed")
-    if body.decision == "approved" and body.details.action in {"sent", "followed_up", "replied"}:
+    if body.decision == "approved" and body.details.action in {
+        "connection_requested", "sent", "followed_up", "replied"
+    }:
         if not body.confirmed_action or not body.details.person:
             raise HTTPException(422, "Name the person and confirm this action actually happened")
-    details = body.details.model_dump(mode="json")
+    details = validate_fields(db, s, body.details.model_dump(mode="json"))
     if body.decision == "approved":
         reject_duplicate(db, s.id, details, c.id, approved_only=True)
     details["occurred_at"] = details["occurred_at"] or c.original["occurred_at"]
@@ -361,7 +378,10 @@ def browser_session(user: BrowserOwner, db: DB):
     s = db.scalar(select(OutreachSession).where(
         OutreachSession.user_id == user.id, OutreachSession.state != "completed"
     ))
-    return {"session": {"id": s.id, "intention": s.intention, "state": s.state} if s else None}
+    return {"session": {"id": s.id, "intention": s.intention, "state": s.state,
+                        "run_name": s.run_name,
+                        "workflow_name": db.get(Workflow, s.workflow_id).name,
+                        "fields": definition_for(db, s)["fields"]} if s else None}
 
 
 @router.post("/extension/sessions/{session_id}/captures", status_code=201)

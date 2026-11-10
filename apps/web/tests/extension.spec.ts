@@ -17,8 +17,12 @@ test("real extension captures selected browser context, reviews once, and revoke
     await app.getByLabel("Email", { exact: true }).fill(`extension-${crypto.randomUUID()}@example.com`);
     await app.getByLabel("Password", { exact: true }).fill("synthetic extension passphrase");
     await app.getByRole("button", { name: "Create account", exact: true }).click();
+    await app.getByRole("navigation").getByRole("button", { name: "Workflows" }).click();
+    await app.getByRole("button", { name: "Create workflow", exact: true }).click();
+    await app.getByRole("button", { name: "Save workflow", exact: true }).click();
+    await app.getByRole("button", { name: "Start a run", exact: true }).click();
     await app.getByLabel("Session intention").fill("Browser-assisted research");
-    await app.getByRole("button", { name: /Start session/ }).click();
+    await app.getByRole("button", { name: /Start run/ }).click();
     await expect(app.getByRole("button", { name: "Pause session" })).toBeVisible();
     await app.getByRole("navigation").getByRole("button", { name: "Browser capture" }).click();
     await app.getByLabel("Extension ID", { exact: true }).fill(id);
@@ -47,8 +51,8 @@ test("real extension captures selected browser context, reviews once, and revoke
     });
     await source.bringToFront();
     await popup.reload();
-    await expect(popup.getByLabel("Source URL", { exact: true })).toHaveValue("http://127.0.0.1:8001/capture-fixture");
-    await expect(popup.getByLabel("Selected text")).toHaveValue("Example company launched a payment product.");
+    await expect(popup.getByLabel("Contact URL", { exact: true })).toHaveValue("http://127.0.0.1:8001/capture-fixture");
+    await expect(popup.getByLabel("Raw capture text")).toHaveValue("Example company launched a payment product.");
     const guard = await popup.evaluate(async () => {
       // Exercise the packaged capture dispatch with synthetic browser metadata. No LinkedIn
       // page is requested, injected, or scraped by this test.
@@ -72,6 +76,7 @@ test("real extension captures selected browser context, reviews once, and revoke
     await popup.getByRole("button", { name: "Expand", exact: true }).click();
     await expect(popup.getByRole("button", { name: "Capture for review", exact: true })).toBeVisible();
     await expect(popup.getByRole("alert")).toBeHidden();
+    await popup.getByText("Known details & activity (optional)", { exact: true }).click();
     await popup.getByLabel("Company", { exact: true }).fill("Example fintech");
     await popup.getByLabel("Follow-up reminder", { exact: true }).fill("2030-01-10");
     await popup.getByRole("checkbox", { name: "Hide window after a successful capture" }).check();
@@ -91,7 +96,7 @@ test("real extension captures selected browser context, reviews once, and revoke
     await expect(app.getByText("1 pending · 0 approved")).toBeVisible({ timeout: 10000 });
     await expect(app.locator(".capture-facts")).toContainText("2030-01-10 · planned, awaiting approval");
     await app.getByRole("button", { name: "Finish & review" }).click();
-    await expect(app.getByRole("textbox", { name: "Company optional", exact: true })).toHaveValue("Example fintech");
+    await expect(app.getByRole("textbox", { name: "Company", exact: true })).toHaveValue("Example fintech");
     await app.getByRole("button", { name: "Approve record" }).click();
     await app.getByRole("button", { name: "Complete session" }).click();
     await expect(app.getByRole("status")).toContainText("1 approved record");

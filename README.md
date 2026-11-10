@@ -1,6 +1,6 @@
 # Outreach sessions
 
-**Start a session → capture as you browse → review → see your progress.**
+**Create a workflow → run it by date → capture raw text → process fields → review.**
 
 A private-first outreach activity tracker for Satvik's international startup/fintech job search.
 Resumatch is the working repository name. The former resume-first app was explicitly reset.
@@ -12,11 +12,12 @@ Resumatch is the working repository name. The former resume-first app was explic
 
 ## What works now
 
-Local accounts, session intentions and durable timers, pause/resume, browser-assisted or manual
-capture, review/edit/approve/discard, private history, weekly goals, and due follow-up reminders.
-Research, drafts, sends, follow-ups and replies remain separate. Only approved records count.
-Review also supports explicit source-text analysis, and completed sessions have stored recap
-cards with downloadable JSON. [Analysis and recap details](docs/source-analysis-and-recaps.md).
+Parent workflows with configurable fields, renameable dated runs, consolidated contacts across
+runs, durable timers, browser/manual raw-text capture, and run-level AI processing. Each workflow
+generates a versioned field DSL, extraction prompt, JSON output schema and executable JSONata mapping.
+Research, drafts, connection requests, messages, follow-ups and replies remain separate. Only
+reviewed/approved records count. Completed runs have stored recap cards and downloadable JSON.
+[Workflow guide and data contracts](docs/workflows.md).
 
 ## Local setup
 
@@ -47,22 +48,39 @@ In a second terminal:
 npm --prefix apps/web run dev
 ```
 
-Open **http://localhost:3000** and create a new account. The reset removed previous accounts,
-profiles and imports. `http://127.0.0.1:3000` is also explicitly allowed. Cookies are host-specific.
+Open **http://localhost:3000** and sign in (or create an account for a fresh install).
+`http://127.0.0.1:3000` is also explicitly allowed. Cookies are host-specific.
 There is no seed data or required candidate-profile form. API docs: http://127.0.0.1:8000/docs.
 
-## Your first real session
+## Workflows and dated runs
 
-1. Enter a small intention, for example “Research and contact one fintech founder.”
-2. Choose a time intention and **Start session**. The timer measures elapsed session time,
-   not verified focus. Pause before a break. Closing the page does not pause it.
-3. Use the extension below, or **Add a quick manual capture**. Keep unknown person/company
-   fields blank. Paste a source URL and choose what actually happened.
-4. **Finish & review**. Correct records and approve or discard each one. Sends, follow-ups
-   and replies require a named person and explicit confirmation. Approval is your confirmation,
-   not platform-verified sending or delivery.
-5. **Complete session**. It contributes to the weekly session goal only if at least one record
-   was approved. Weekly boundaries use UTC. History includes empty/discarded sessions honestly.
+1. Open **Workflows → Create workflow**. Start with founder connections, the contact-outreach
+   template, or only contact fields. Name it, edit/add fields and their extraction instructions,
+   then **Save workflow**. Contact URL, Name and Company stay available; other fields are optional.
+2. Open the workflow and **Start a run**. A run defaults to its UTC date and can be renamed.
+   Choose an intention/time, then **Start run**. Pause before a break; closing the page doesn't pause.
+3. Capture the **Contact URL** and paste **Raw capture text** in the extension or manual form.
+   The same box holds copied snippets, context and rough notes. Known fields can be entered,
+   otherwise leave them blank for processing. No separate page-title/source-analysis input.
+4. At the top of the run, **Process with AI** works through pending saved raw text using the
+   workflow's field DSL and JSONata. Progress is saved per record; stop after the current record
+   or resume later. Existing non-empty fields are preserved. Unknowns remain empty. Provider
+   failure stops the pass and shows any local fallback rather than repeatedly charging retries.
+5. **Finish & review**. Check each compact record, expand **Review fields & approve**, correct
+   extracted values, then approve/discard. Requests, messages, follow-ups and replies require your
+   explicit confirmation; AI cannot infer actions from a profile's buttons or “Pending” text.
+6. **Complete session** to save the run and recap. Return to the parent workflow for dated runs
+   or **Consolidated records**. Repeated profile identities across dates share one contact row,
+   with each run/action/decision still visible. Pending records are labeled and discarded ones excluded.
+
+**Edit fields & name** creates a new workflow version. Existing runs keep their field contract;
+use **Use latest workflow fields** to adopt additive updates in an open run. Removing/changing
+field types applies to new runs instead. **Download DSL & JSONata** gives the generated contract.
+Only completed runs with an approved record count toward weekly goals; boundaries use UTC.
+
+The workflow migration preserves existing sessions/captures, including the current 40-record run.
+The two known fintech-founder runs are grouped under **Fintech founder connections**; the other
+known run is under **Contact outreach**. No capture decisions/actions are reclassified by migration.
 
 Follow-up dates create reminders after approval. **Clear reminder** only clears the reminder;
 capture a real follow-up action separately if you sent one.
@@ -74,13 +92,14 @@ capture a real follow-up action separately if you sent one.
 3. Open its popup and copy the **Extension ID**.
 4. In the app, choose **Browser capture**, paste the ID, and generate a pairing token.
 5. Paste the token in the extension. Choose **Local API · 8000** and save pairing.
-6. Start a session in the app. On a normal web page, optionally select a useful passage, then
+6. Start a run in the app. On a normal web page, optionally select a useful passage, then
    click the extension or use **Alt+Shift+L** (configurable at `chrome://extensions/shortcuts`).
-7. Check the URL/title/selection, add known details, and **Capture for review**.
+7. Check **Contact URL**, paste **Raw capture text**, optionally choose known details/activity,
+   and **Capture for review**. Process configured fields from the run in the app.
 
 ### Placement and LinkedIn mode
 
-Reload the extension in `chrome://extensions` after updating to version **0.3.0**. In its popup,
+Reload the extension in `chrome://extensions` after updating to version **0.4.0**. In its popup,
 choose **Open movable window**. It starts near the left of your source browser. Drag its native
 window title bar to place it anywhere, resize it, use **Collapse / Expand**, or **Hide window**.
 Enable **Hide window after a successful capture** if desired. This is a separate browser window,
@@ -114,13 +133,13 @@ Older duplicates remain in your data, get flagged, and can be discarded during r
 - **Clear reminder** clears the task only. Record an actual follow-up action separately.
 - No date selected is shown as **No reminder set**. Nothing invents a follow-up date.
 
-### Source-text analysis and your session recap
+### Raw-text processing and your run recap
 
-During **Finish & review**, expand **Source text & analysis**, paste relevant text, then choose
-**Analyze source text**. Source-backed name, company, role and key-point suggestions appear below.
-Choose **Use name/company in form**, edit as needed, then approve separately. Actions/reminder dates
-are never inferred. Nothing is extracted from LinkedIn HTML, and pasting text into an LLM does not
-establish permission under LinkedIn's terms. Only process content you are entitled to use.
+**Process with AI** uses saved **Raw capture text** to fill this run's configured fields. When
+editing text/fields during review, **Save draft changes** before processing. Analysis stores the
+workflow/version, source hash, cited facts, filled/preserved keys and actual provider/fallback
+method separately from original captures. It does not approve records or infer action/reminder
+dates. No LinkedIn HTML reading was added. Only process content you are entitled to use.
 
 After completing a session, its recap shows session time, approved action counts, known people/
 companies, and next follow-ups. It is stored in PostgreSQL and available in history. Use
@@ -136,10 +155,10 @@ LLM_BASE_URL=https://api.openai.com/v1
 LLM_MODEL=gpt-4.1-mini
 ```
 
-Restart the API after editing `.env`. The stored key was rejected by OpenAI during a synthetic
-smoke test; replace it with a valid key to enable live results. Local labeled-field suggestions
-and the full computed recap work without it. Provider failures are shown explicitly. No real
-key belongs in `.env.example` or a browser bundle. See [the data contracts](docs/source-analysis-and-recaps.md).
+Restart the API after editing `.env`. The rotated key passed a live synthetic source-analysis
+check with gpt-4.1-mini; no real contact text was used. Local labeled-field suggestions
+and the full computed recap also work without it. Provider failures are shown explicitly. No real
+key belongs in `.env.example` or a browser bundle. See [workflow contracts](docs/workflows.md).
 
 For supported non-LinkedIn pages, the extension reads the current tab only after invocation. No passive monitoring, guessed contact
 facts, automated sends or full-inbox scraping. Chrome's internal pages cannot be captured.
@@ -219,9 +238,45 @@ volume; `docker compose down -v` deletes it.
 - **503 / readiness failure:** check the DB container, `.env` database URL, and migration head.
 - **Post-reset first start:** use the new schema head `0001_outreach`. Archived migrations are
   deliberately not part of the new chain; the earlier project reset has already been executed.
-  Existing installs now run `uv run alembic upgrade head` to reach `0002_analysis_recaps`.
+  Existing installs now run `uv run alembic upgrade head` to reach `0003_workflows`.
 
 ### Inspect tables
+
+For a browser-based database UI, start **Adminer**:
+
+```sh
+docker compose up -d db-ui
+```
+
+Open **http://localhost:8082** and enter:
+
+| Login field | Value |
+| --- | --- |
+| System | PostgreSQL |
+| Server | `db` |
+| Username | `resumatch` |
+| Password | The `POSTGRES_PASSWORD` value in your ignored `.env` |
+| Database | `resumatch` |
+
+Use `db` rather than localhost in the Server field: Adminer connects to PostgreSQL across the
+project's Docker network. The UI is bound only to `127.0.0.1`; `DB_UI_PORT` can change its host port.
+Select a table, then **Select data** to browse/filter rows. **SQL command** runs queries; for
+readable capture fields, try:
+
+```sql
+SELECT id, details->>'person' AS person, details->>'company' AS company,
+       details->>'action' AS action, decision
+FROM captures
+ORDER BY created_at DESC
+LIMIT 50;
+```
+
+You can also log in to `resumatch_test` to inspect this project's disposable test data. Adminer
+can edit/delete data as well as read it, so use **Select data** when you only want to browse.
+Stop just the UI with `docker compose stop db-ui`; PostgreSQL keeps running and its volume is
+unchanged. This setup connects only this project's databases, not other Docker projects.
+
+For terminal access:
 
 ```sh
 docker compose exec db psql -U resumatch -d resumatch -c '\dt'

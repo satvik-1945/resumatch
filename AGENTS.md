@@ -3,12 +3,17 @@
 Read PRODUCT_PLAN.md and V1_TASKS.md first. They replace the old resume-first product.
 The user explicitly requested resetting this repository and its two project databases.
 Do not resurrect archived milestones or rebuild a broad job-search suite.
+The reset is historical, not permission to reset again: real user contacts now exist and must
+be preserved. Current hierarchy is workflow → dated run/session → captures. Read docs/workflows.md.
 
 Build one useful loop: start a session → browser-assisted capture → review → approved history.
 First customer: Satvik's international startup/fintech job search. LinkedIn is an initial
 channel label, not a verified inbox integration. Keep source URLs, unknowns and manual fallback.
 
 - Draft, research, sent, follow-up and reply are different actions. Only reviewed records count.
+- Connection requests and initial messages are distinct actions. Never infer them from profile text.
+- Capture uses Contact URL + Raw capture text. Process with AI uses the run's versioned DSL and
+  JSONata, fills empty fields only, and never auto-approves. Do not restore a separate source-text panel.
 - Timer measures session time, not proven focused work. Pauses and restarts must be durable.
 - Capture is explicit: no passive inbox monitoring, automatic sending, or guessed contact facts.
 - LinkedIn is manual-only: no LinkedIn DOM/title/selection reads or page overlays. Never claim

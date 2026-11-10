@@ -19,6 +19,8 @@ class Credentials(Input):
 class Start(Input):
     intention: str = Field(min_length=1, max_length=200)
     target_minutes: int = Field(default=25, ge=5, le=180)
+    workflow_id: UUID | None = None
+    run_name: str | None = Field(default=None, min_length=1, max_length=200)
 
 
 class Transition(Input):
@@ -32,8 +34,11 @@ class Details(Input):
     person: Short = ""
     company: Short = ""
     channel: Literal["linkedin", "email", "x", "web", "other"] = "linkedin"
-    action: Literal["researched", "drafted", "sent", "followed_up", "replied"] = "researched"
-    notes: str = Field(default="", max_length=2000)
+    action: Literal[
+        "researched", "drafted", "connection_requested", "sent", "followed_up", "replied"
+    ] = "researched"
+    notes: str = Field(default="", max_length=16000)
+    fields: dict[str, str | int | float | bool | None] = Field(default_factory=dict, max_length=20)
     occurred_at: datetime | None = None
     followup_on: date | None = None
 

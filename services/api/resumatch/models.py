@@ -42,6 +42,9 @@ class OutreachSession(Base):
     elapsed_seconds: Mapped[int] = mapped_column(default=0, server_default="0")
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    workflow_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workflows.id"), index=True)
+    workflow_version: Mapped[int] = mapped_column(default=1)
+    run_name: Mapped[str] = mapped_column(String(200))
     __table_args__ = (
         CheckConstraint("state IN ('active','paused','review','completed')", name="session_state"),
         CheckConstraint("elapsed_seconds >= 0", name="session_elapsed"),
@@ -103,4 +106,27 @@ class SessionRecap(Base):
     )
     payload: Mapped[dict] = mapped_column(JSONB)
     reflection: Mapped[dict | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Workflow(Base):
+    __tablename__ = "workflows"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text, default="", server_default="")
+    kind: Mapped[str] = mapped_column(String(40), default="custom")
+    version: Mapped[int] = mapped_column(default=1, server_default="1")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class WorkflowVersion(Base):
+    __tablename__ = "workflow_versions"
+    workflow_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("workflows.id", ondelete="CASCADE"), primary_key=True
+    )
+    version: Mapped[int] = mapped_column(primary_key=True)
+    definition: Mapped[dict] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

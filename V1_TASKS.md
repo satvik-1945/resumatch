@@ -26,7 +26,18 @@ This is the active checklist. Earlier resume-first work is superseded in docs/ar
 - [x] Completed-session recap snapshot, visible progress card and downloadable JSON.
 - [x] Optional bounded source-linked observations from approved records only.
 - [x] Fix intrinsic popup sizing; responsive movable window without obscuring controls.
-- [ ] Successful live OpenAI analysis after replacing the rejected key.
+- [x] Successful live OpenAI source analysis after replacing the rejected key (synthetic text).
+
+## Parent workflows — active iteration
+- [x] Preserve real records while grouping existing sessions under parent workflows.
+- [x] Create/rename workflows and define typed fields with extraction instructions.
+- [x] Dated, renameable runs with versioned field contracts.
+- [x] Consolidated contact records with per-run/action/decision history.
+- [x] One Raw capture text input; remove separate notes/source-analysis UI.
+- [x] Generate downloadable DSL/prompt/JSON schema/JSONata; execute actual JSONata mapping.
+- [x] Top Process with AI pass over saved pending records, fill empty fields only, preserve manual values.
+- [x] Explicit connection-request action separate from initial messages; no inferred approvals.
+- [ ] Use the updated workflow UI for the next real 40-record review.
 
 ## Current handoff
 ## Implemented first slice
@@ -224,3 +235,112 @@ last integration/verification step.
 Next: replace rejected OpenAI key, restart API, reload extension v0.3.0, refresh app and run an
 actual review → analysis → explicit field use → approval → recap flow. Metrics/JSON/local logging
 are already usable. Continue five real sessions before expanding discovery or sharing.
+
+### Rotated OpenAI key verification — 2026-11-10
+
+User reported rotating the key. One bounded call to `analyze_source` with synthetic name/company/
+role text returned `method: llm`, `model: gpt-4.1-mini`, `warning: null`. No personal contact or
+LinkedIn text was sent. Verified and restarted only the project's local uvicorn process so cached
+settings load the rotated key. Readiness returned `{"status":"ok","database":"ready"}`.
+The prior key blocker is resolved for live source analysis; real-user review and live recap
+observations remain the next usage experiment. This API success says nothing about LinkedIn
+authorization: current manual-only behavior is not an approval or guarantee of account safety.
+
+### Local PostgreSQL browser UI — 2026-11-10
+
+User requested an easier local UI for inspecting project databases. Added Adminer as Compose
+service `db-ui` (`adminer:5`), on loopback-only `127.0.0.1:8082`, with `db` as default server and
+healthy DB dependency. PostgreSQL port/volume remain unchanged. Added optional `DB_UI_PORT` to
+the example environment and documented login/table browsing/SQL/stop commands in README.
+
+Checks: `docker compose up -d --wait db-ui` succeeded; Adminer HTTP 200 and authenticated login
+using ignored `.env` credentials succeeded. Verified outreach_sessions, captures and session_recaps
+appear in the table listing without printing credentials or row contents. `docker compose ps`
+confirmed separate project DB/UI containers and loopback binding; `git diff --check` passed.
+No schema changes, data mutations, unrelated container changes, application tests or commits.
+
+## Workflow/run hierarchy and configurable extraction — 2026-11-10
+
+User reported completing 40 contacts in about 24 minutes and requested parents for two repeated
+activities, dated/renameable child runs, a consolidated contacts view, configurable fields, a
+generated DSL + JSONata extraction system, and one top Process with AI button over pasted notes.
+
+### Data preservation and migration
+
+- Inspected existing session intentions/counts only: two founder intentions on Nov 9/10 and one
+  outreach intention on Nov 9. Saved ignored `.local/pre-workflows.dump` before schema changes.
+- Added migration `0003_workflows`: workflows + immutable workflow_versions, then backfilled existing
+  sessions with owner-scoped workflow IDs, version and dated run names before NOT NULL/FK constraints.
+  The two explicitly known founder titles group into **Fintech founder connections**; the known
+  outreach title into **Contact outreach**. Other intentions keep their own group.
+- Verified live grouping: founder runs 2026-11-09 (3 captures) and 2026-11-10 (40 captures, review),
+  outreach run 2026-11-09 (1 capture). All 44 captures, decisions, raw/original data, session IDs and
+  existing recaps preserved. No reset or retroactive action reclassification; backup remains private.
+
+### Implemented
+
+- Workflows page: create with founder/outreach template or minimal contact fields, add/remove/edit
+  typed fields and instructions, rename parent, inspect dated runs, start run, download DSL/JSONata,
+  and consolidated contacts. Editable run names and Run history preserve original intentions.
+- Schema fields include Contact URL, Name, Company and configurable text/long text/number/boolean/
+  date/URL fields. Founder defaults: role, location, industry, hiring signal. Outreach defaults:
+  role, location, conversation context and explicit next step. Unknowns remain null; names are not
+  treated as externally verified facts. Reserved activity/owner keys cannot become custom fields.
+- Each version stores DSL fields, extraction system prompt, output JSON schema and trusted generated
+  JSONata expression. `jsonata-python==0.7.1` runs the mapping after type/source-evidence validation.
+  No arbitrary user expression execution. Fields evolution is explicit: existing runs retain their
+  definition version; open runs can adopt additive updates, incompatible updates require a new run.
+- Capture form/extension v0.4.0 now use **Contact URL + Raw capture text**; the old separate notes,
+  page-title and source-analysis inputs are removed. Historical notes/quotes remain stored and are
+  combined for processing only when needed. Original capture JSON is not overwritten.
+- Top **Process with AI** traverses saved pending records sequentially; progress saved per record,
+  stop-after-current, stops on navigation/fallback/error, and successful same-source/version results
+  reused. Empty fields are filled automatically; manual non-empty fields, false and zero preserved.
+  Each analysis stores workflow ID/version, raw hash, evidence, filled/preserved keys and actual
+  provider/method. AI does not change action, approval, URL or follow-up date. No contacts are sent.
+- Review supports Save draft changes before processing. Large runs use compact expandable cards
+  with extracted-field chips. Approval remains explicit and existing duplicate checks still apply.
+- Connection request sent (`connection_requested`) now differs from initial message sent; explicit
+  person/action confirmation is required. Weekly request counts and recap actions stay distinct.
+  Old “researched” actions are not inferred from profile “Pending” buttons or workflow names.
+- Consolidation groups normalized profile URLs (fallback exact name/company or URL), fills latest
+  non-empty logged values and links each dated run/action/decision. Pending entries labeled;
+  discarded excluded. Current 5,000-record source limit is explicit, not silent truncation.
+- README/PRODUCT_PLAN/AGENTS and docs/workflows.md updated. Prior source-analysis API/history kept
+  compatible, but its removed UI is not the current workflow. New recaps include workflow/run/custom
+  fields; historical completion snapshots stay unchanged.
+
+### Checks
+
+- `uv sync`: installed actual JSONata engine; `uv run alembic upgrade head && uv run alembic check`
+  migrated development DB and reported no schema drift.
+- `uv sync --frozen && uv run ruff check . && uv run pytest -q && uv run alembic check`: **49 real PostgreSQL tests passed**,
+  lint/schema checks passed. Includes downgrade-to-prior-schema/data-preserving backfill, parent and
+  linked-ID ownership, field version/sync behavior, actual JSONata evaluation, custom-field injection
+  rejection, fill-empty/manual preservation, provider failure and concurrent edit, consolidation,
+  and a synthetic 40-record processing pass without approval/action invention. Existing upstream
+  Starlette/httpx deprecation warning remains.
+- From apps/web, `npm exec --yes --package=node@22 -c 'npm run test:e2e && npm run typecheck && npm run lint'`:
+  **5 browser tests passed**, TypeScript/ESLint passed. Real extension supports simplified raw capture;
+  desktop/mobile cover creating fields, dated runs, local batch fallback, preserved manual values,
+  rename, actual contract download, cross-run consolidated contacts, review/recap and no page overflow.
+- Bounded live synthetic OpenAI workflow-contract request succeeded. Output passed grounded typed
+  validation and genuine JSONata evaluation (person/company/role/location/industry). No real contact
+  data was used, no user records processed automatically, and no full daily.dev/inbox integration.
+- Inspected desktop/mobile workflow/consolidation and review screenshots in ignored test-results.
+- Final `npm exec --yes --package=node@22 -c 'npm run typecheck && npm run lint && npm run build && node --check ../extension/popup.js && node --check ../extension/capture.js && node --check ../extension/background.js'` passed. Final browser rerun: **5 passed**.
+- Verified live DB totals after migration: **2 workflows, 3 runs, 44 captures, 40 in review**.
+  Restarted only the verified project uvicorn process to load current routes/settings. API readiness
+  healthy and web HTTP 200. `git diff --check` passed. No commits/deployments or unrelated DB changes.
+
+### Next experiment and limits
+
+Reload extension **v0.4.0**; refresh app → Workflows → Fintech founder connections → Nov 10 run →
+Process with AI. Review the filled fields; existing manual values remain. The implementation has
+not spent 40 real provider calls on the user's records—processing starts only on their button click.
+Use Edit fields & name to add missing fields, then explicitly sync the open run if needed.
+
+Current processing is a resumable foreground UI loop, not a server-side scheduled worker. One open
+run per account remains. Completed/approved records are not silently enriched; historical amendment
+needs a separate reviewed design. Identity consolidation is deterministic, not fuzzy verification.
+Only the latest per-record AI result is stored, alongside immutable original data and versioned DSL.

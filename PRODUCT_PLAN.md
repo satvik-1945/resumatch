@@ -12,6 +12,19 @@ Start an outreach session with an intention → browse normally → explicitly c
 and action → finish/pause → review captured records → approve or discard → see session progress.
 No resume/profile onboarding. No required paid provider or LLM.
 
+## Parent workflows and dated runs — refinement from real usage
+Satvik reported 40 contacts in about 24 minutes and repeated a fintech-founder activity across
+two days. A workflow now owns its field definitions and each session is a dated, renameable run.
+Initial parents: Fintech founder connections and Contact outreach. Consolidated records group
+contacts across runs without deleting their per-run history or counting pending actions as approved.
+
+Create workflow → choose/add fields → start a dated run → capture Contact URL + Raw capture text →
+Process with AI at the top → review filled fields and explicit actions → approve → recap.
+The earlier separate notes/source-text panels are replaced by one Raw capture text input.
+Each workflow compiles a versioned DSL, prompt, JSON schema and trusted generated JSONata mapping.
+AI fills empty fields only, keeps unknowns empty, and never decides what action happened.
+Definitions can evolve; existing runs adopt additive changes explicitly. Keep all real records.
+
 First channel assumption: desktop LinkedIn, based on prior user behavior. Capture also works on
 company/news pages; sending still happens in the real channel. Confirm the preferred channel
 through actual usage rather than blocking a generic browser-capture experiment.
@@ -29,8 +42,8 @@ through actual usage rather than blocking a generic browser-capture experiment.
 - Captures are durable drafts. Review edits, rejects or confirms them; only approved actions count.
 - History, a simple weekly session target, honest approved-action totals, and due follow-ups.
 - Browser authorization gives capture-only access, not account-history or approval access.
-- Explicit source-text analysis during review suggests source-backed identity/context fields;
-  using suggestions and approval remain separate. No action or outcome is inferred from profiles.
+- Workflow-level **Process with AI** fills configured fields from saved raw text, with evidence
+  and visible progress/fallback. Processing and approval remain separate; no inferred actions.
 - Completed-session JSON snapshots and recap cards compute counts from approved records. Optional
   AI observations cite approved source excerpts and never change metrics or fabricate success.
 
