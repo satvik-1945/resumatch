@@ -141,15 +141,18 @@ async function readTab() {
     });
     const host = new URL(context.source_url).hostname;
     const channel = host === "linkedin.com" || host.endsWith(".linkedin.com") ? "linkedin" : host === "x.com" ? "x" : "web";
-    draft = { sessionId: session.id, request_id: crypto.randomUUID(), details: { ...context, person: "", company: "", channel, action: "researched", notes: "", followup_on: null, occurred_at: new Date().toISOString() } };
+    draft = { sessionId: session.id, sessionLabel: `${session.workflow_name || session.intention} / ${session.run_name || "Current run"}`, request_id: crypto.randomUUID(), details: { ...context, person: "", company: "", channel, action: "researched", notes: "", followup_on: null, occurred_at: new Date().toISOString() } };
     await chrome.storage.local.set({ draft });
     showDraft();
   } catch {
     throw new Error("Open a normal website, then click the extension toolbar button again. Restricted pages cannot be read. Manual capture is also available in the app.");
   }
 }
+// A draft only matters if the user typed something; an untouched one is just a stale page read.
+const draftHasContent = d => ["notes", "person", "company"].some(k => (d?.details[k] || "").trim());
+const pageKey = url => { try { const u = new URL(url); return (u.host + u.pathname).replace(/\/+$/, "").toLowerCase(); } catch { return ""; } };
 async function refresh() {
-  clearError(); el("capture-form").hidden = true;
+  clearError(); el("capture-form").hidden = true; el("status").className = "";
   try {
     ({ config = {}, draft = null } = await chrome.storage.local.get(["config", "draft"]));
     el("hide-after-save").checked = !!config.hideAfterSave;
@@ -159,13 +162,22 @@ async function refresh() {
     session = (await request("/extension/session")).session;
     el("session").textContent = session ? `${session.workflow_name || session.intention} / ${session.run_name || "Current run"} · ${session.state}` : "Start a run in the app, then refresh here.";
     if (session?.state !== "active") return;
-    if (draft && draft.sessionId !== session.id) {
-      el("status").textContent = "A draft from an earlier session is still on this browser. Start a new page capture to replace it.";
-      el("capture-form").hidden = false; showDraft(); el("capture-submit").disabled = true; return;
+    const tabUrl = (await sourceTab().catch(() => null))?.url || "";
+    const otherPage = draft && pageKey(draft.details.source_url) !== pageKey(tabUrl);
+    if (draft && !draftHasContent(draft) && (draft.sessionId !== session.id || otherPage)) {
+      await chrome.storage.local.remove("draft"); draft = null;
     }
     el("capture-form").hidden = false; el("capture-submit").disabled = false;
-    if (draft) { showDraft(); el("status").textContent = "Restored your unsent draft. Capture again safely if a previous request was interrupted."; }
-    else await readTab();
+    if (!draft) { await readTab(); return; }
+    showDraft();
+    const from = draft.sessionLabel ? ` from “${draft.sessionLabel}”` : "";
+    if (draft.sessionId !== session.id) {
+      // Never let an unsent draft land in a different run than the one it was started in.
+      el("capture-submit").disabled = true; el("status").className = "warn";
+      el("status").textContent = `Unsent draft${from} for ${draft.details.source_url}. It belongs to another run, so it can’t be captured here. Use “Discard local draft & use current page” to capture this page.`;
+    } else if (otherPage) {
+      el("status").textContent = `Unsent draft for ${draft.details.source_url}, but you’re now on a different page. Capture it as is, or discard it to use this page.`;
+    } else el("status").textContent = "Restored your unsent draft. Capture again safely if a previous request was interrupted.";
   } catch (error) { fail(error); }
 }
 el("pair-form").addEventListener("submit", async event => {
@@ -204,7 +216,7 @@ el("capture-form").addEventListener("submit", async event => {
 });
 el("new-page").addEventListener("click", async () => {
   clearError(); if (inFlight) return;
-  try { await readTab(); el("capture-submit").disabled = false; el("status").textContent = "Current page ready for capture."; } catch (error) { fail(error); }
+  try { await readTab(); el("capture-submit").disabled = false; el("status").className = ""; el("status").textContent = "Current page ready for capture."; } catch (error) { fail(error); }
 });
 el("retry").addEventListener("click", refresh);
 el("detach").addEventListener("click", async () => {

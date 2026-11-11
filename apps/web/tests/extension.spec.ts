@@ -53,6 +53,24 @@ test("real extension captures selected browser context, reviews once, and revoke
     await popup.reload();
     await expect(popup.getByLabel("Contact URL", { exact: true })).toHaveValue("http://127.0.0.1:8001/capture-fixture");
     await expect(popup.getByLabel("Raw capture text")).toHaveValue("Example company launched a payment product.");
+    // A typed draft from another run is kept but blocked; an untouched stale one is replaced.
+    type Storage = { get(key: string): Promise<{ draft: { details: object } }>; set(items: object): Promise<void> };
+    const seed = (notes: string) => popup.evaluate(async notes => {
+      const storage = (globalThis as unknown as { chrome: { storage: { local: Storage } } }).chrome.storage.local;
+      const { draft } = await storage.get("draft");
+      await storage.set({ draft: { ...draft, sessionId: crypto.randomUUID(), sessionLabel: "Contact outreach / 2026-11-10",
+        details: { ...draft.details, source_url: "https://example.com/someone-else", notes } } });
+    }, notes);
+    await seed("Typed notes about someone else");
+    await popup.reload();
+    await expect(popup.getByRole("status")).toContainText("Unsent draft from “Contact outreach / 2026-11-10” for https://example.com/someone-else");
+    await expect(popup.getByRole("button", { name: "Capture for review", exact: true })).toBeDisabled();
+    await expect(popup.getByLabel("Contact URL", { exact: true })).toHaveValue("https://example.com/someone-else");
+    await seed("");
+    await popup.reload();
+    await expect(popup.getByLabel("Contact URL", { exact: true })).toHaveValue("http://127.0.0.1:8001/capture-fixture");
+    await expect(popup.getByLabel("Raw capture text")).toHaveValue("Example company launched a payment product.");
+    await expect(popup.getByRole("button", { name: "Capture for review", exact: true })).toBeEnabled();
     const guard = await popup.evaluate(async () => {
       // Exercise the packaged capture dispatch with synthetic browser metadata. No LinkedIn
       // page is requested, injected, or scraped by this test.
