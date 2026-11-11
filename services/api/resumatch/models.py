@@ -6,6 +6,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -26,6 +27,9 @@ class User(Base):
     weekly_target: Mapped[int] = mapped_column(default=3, server_default="3")
     # The sender's own background; message briefs pick credentials only from this text.
     about_me: Mapped[str] = mapped_column(Text, default="", server_default="")
+    # Pasted/uploaded resume and the persona derived from it (evidence-quoted points only).
+    resume_text: Mapped[str] = mapped_column(Text, default="", server_default="")
+    persona: Mapped[dict | None] = mapped_column(JSONB)
     __table_args__ = (
         CheckConstraint("weekly_target BETWEEN 1 AND 14", name="weekly_target_range"),
     )
@@ -155,6 +159,48 @@ class ContactBrief(Base):
     company_url: Mapped[str | None] = mapped_column(String(2000))
     research: Mapped[dict] = mapped_column(JSONB)
     brief: Mapped[dict] = mapped_column(JSONB)
+    # The user's own notes on this person and their goal for the note.
+    context: Mapped[str] = mapped_column(Text, default="", server_default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     __table_args__ = (UniqueConstraint("user_id", "contact_key", name="one_brief_per_contact"),)
+
+
+class AiPrompt(Base):
+    """One row per distinct instruction + output schema: the prompt version runs are compared by."""
+    __tablename__ = "ai_prompts"
+    sha256: Mapped[str] = mapped_column(String(64), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(40))
+    instruction: Mapped[str] = mapped_column(Text)
+    output_schema: Mapped[dict] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AiRun(Base):
+    """One AI generation: what went in (incl. fetched research), what came out, what was kept."""
+    __tablename__ = "ai_runs"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    kind: Mapped[str] = mapped_column(String(40))
+    subject: Mapped[str | None] = mapped_column(String(300))
+    status: Mapped[str] = mapped_column(String(20))
+    prompt_sha256: Mapped[str | None] = mapped_column(ForeignKey("ai_prompts.sha256"))
+    model: Mapped[str | None] = mapped_column(String(200))
+    meta: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    research: Mapped[dict | None] = mapped_column(JSONB)
+    input: Mapped[dict | None] = mapped_column(JSONB)
+    output: Mapped[dict | None] = mapped_column(JSONB)
+    result: Mapped[dict | None] = mapped_column(JSONB)
+    rejected: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
+    error: Mapped[str | None] = mapped_column(Text)
+    latency_ms: Mapped[int | None]
+    prompt_tokens: Mapped[int | None]
+    completion_tokens: Mapped[int | None]
+    rating: Mapped[int | None] = mapped_column(SmallInteger)
+    feedback: Mapped[str] = mapped_column(Text, default="", server_default="")
+    rated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        CheckConstraint("rating IN (-1, 1)", name="ai_rating_values"),
+        Index("ix_ai_runs_user_created", "user_id", "created_at"),
+    )

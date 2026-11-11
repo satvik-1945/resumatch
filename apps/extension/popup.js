@@ -48,7 +48,7 @@ async function checkContact() {
   const url = (await sourceTab().catch(() => null))?.url || "";
   el("contact").hidden = !profilePattern.test(url);
   if (el("contact").hidden) return;
-  if (url !== contactUrl) { contactUrl = url; el("company_url").value = ""; }
+  if (url !== contactUrl) { contactUrl = url; el("company_url").value = ""; el("brief_context").value = ""; el("brief-error").hidden = true; }
   el("contact-title").className = ""; el("contact-title").textContent = "Checking your records…";
   try { renderContact(await request(`/extension/contacts/lookup?url=${encodeURIComponent(url)}`)); }
   catch (error) { el("contact-title").textContent = error.message; }
@@ -65,7 +65,9 @@ function renderContact(found) {
   } else list.append(node("p", "Capture them below first; briefs are built from your saved records."));
   el("brief-form").hidden = !found.found;
   el("about-hint").hidden = !found.found || found.about_me_set;
+  el("brief-submit").disabled = !found.about_me_set;
   if (found.brief?.company_url && !el("company_url").value) el("company_url").value = found.brief.company_url;
+  if (found.brief?.context && !el("brief_context").value) el("brief_context").value = found.brief.context;
   renderBrief(found.brief);
 }
 function renderBrief(saved) {
@@ -93,12 +95,16 @@ function renderBrief(saved) {
   briefText = lines.join("\n").trim();
 }
 el("brief-form").addEventListener("submit", async event => {
-  event.preventDefault(); clearError();
+  event.preventDefault(); clearError(); el("brief-error").hidden = true;
   el("brief-submit").disabled = true; el("brief-submit").textContent = "Researching & generating…";
   try {
-    renderContact(await request("/extension/contacts/brief", "POST", { url: contactUrl, company_url: el("company_url").value.trim() || null }));
+    renderContact(await request("/extension/contacts/brief", "POST", { url: contactUrl, company_url: el("company_url").value.trim() || null, context: el("brief_context").value }));
     el("status").textContent = "Brief ready. Write the note yourself, then log what you sent.";
-  } catch (error) { fail(error); renderBrief(null); }
+  } catch (error) {
+    // Shown next to the button: the popup's top error line is easy to miss down here.
+    el("brief-error").textContent = error.message; el("brief-error").hidden = false;
+    el("brief-submit").textContent = briefText ? "Regenerate message brief" : "Generate message brief";
+  }
   finally { el("brief-submit").disabled = false; }
 });
 el("copy-brief").addEventListener("click", async () => {

@@ -45,9 +45,33 @@ test("outreach record checks the founder workflow and shows a grounded message b
   await expect(panel.getByRole("heading", { name: "✓ Already in your records · 2" })).toBeVisible();
   await expect(panel).toContainText("Mira Example · Synthetic Pay");
   await expect(panel).toContainText("Fintech founder connections");
-  await panel.getByLabel("About you").fill("FDE in fintech, 2.5 years. Built 2 products from scratch.");
-  await panel.getByRole("button", { name: "Save About you" }).click();
-  await expect(panel.getByRole("status")).toContainText("About you saved.");
+  await expect(panel.getByRole("button", { name: "Generate message brief" })).toBeDisabled();
+
+  // About you: upload a resume file, save, and build a persona.
+  await panel.getByRole("button", { name: "Add your resume under About you" }).click();
+  await expect(page.getByRole("heading", { name: "About you", level: 1 })).toBeVisible();
+  await page.getByLabel("Upload resume file").setInputFiles({ name: "resume.txt", mimeType: "text/plain",
+    buffer: Buffer.from("Forward Deployed Engineer, fintech\n- Built 2 products from scratch") });
+  await expect(page.getByLabel("Your resume")).toHaveValue(/Built 2 products from scratch/);
+  await page.getByLabel("About you").fill("Casual. Sign off: cheers, Sam");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("Saved.");
+  await page.getByRole("button", { name: "Build my persona" }).click();
+  await expect(page.locator("p.error")).toContainText("AI persona unavailable");
+  await page.route("**/api/profile/persona", async route => {
+    const profile = await (await page.request.get("/api/profile")).json();
+    await route.fulfill({ json: { ...profile, persona: { headline: "Forward deployed engineer in fintech", summary: "Ships products.", domains: ["fintech"],
+      strengths: [], proof_points: [{ point: "Built 2 products from scratch", evidence: "Built 2 products from scratch" }],
+      dropped: 0, stale: false, generated_at: new Date().toISOString(), model: null } } });
+  });
+  await page.getByRole("button", { name: "Build my persona" }).click();
+  const persona = page.getByRole("region", { name: "Your persona" });
+  await expect(persona.getByRole("heading", { name: "Forward deployed engineer in fintech" })).toBeVisible();
+  await expect(persona).toContainText("“Built 2 products from scratch”");
+
+  await page.getByRole("navigation").getByRole("button", { name: "Today" }).click();
+  await page.getByRole("button", { name: "Check records & message brief" }).click();
+  await panel.getByLabel("What you know & your goal").fill("Posted about hiring. Goal: intro chat.");
 
   // Tests have no provider key: the real API reports it instead of inventing a brief.
   await panel.getByRole("button", { name: "Generate message brief" }).click();
@@ -57,7 +81,8 @@ test("outreach record checks the founder workflow and shows a grounded message b
   const found = await (await page.request.get(`/api/contacts/lookup?url=${encodeURIComponent(profile)}`)).json();
   expect(found.records).toHaveLength(2);
   await page.route("**/api/contacts/brief", async route => {
-    await route.fulfill({ json: { ...found, brief: { company_url: "https://synthetic-pay.example", updated_at: new Date().toISOString(),
+    expect(route.request().postDataJSON().context).toBe("Posted about hiring. Goal: intro chat.");
+    await route.fulfill({ json: { ...found, brief: { company_url: "https://synthetic-pay.example", context: "Posted about hiring. Goal: intro chat.", updated_at: new Date().toISOString(),
       research: { pages: ["https://synthetic-pay.example/"], facts: [{ fact: "Reconciliation APIs for card issuers", source_quote: "reconciliation APIs" }], dropped_facts: 1, fetched_at: null, model: null },
       brief: { hooks: ["your recon APIs for card issuers"], credentials: ["FDE in fintech, 2.5 years"], bridges: ["seen recon pain firsthand"], asks: ["just saying hi"], avoid: ["pitching"], reference_draft: "Hey Mira," } } } });
   });

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import SQLAlchemyError
 
+from resumatch.ai_runs import ai_run
 from resumatch.auth import DB, BrowserOwner, Owner, digest, require_origin
 from resumatch.duplicates import duplicate_of, same_subject
 from resumatch.intelligence import SourceRequest, analyze_source, configured, reflect_on_recap
@@ -117,7 +118,7 @@ def ready(db: DB):
     try:
         revision = db.scalar(text("SELECT version_num FROM alembic_version"))
         db.execute(select(OutreachSession.id).limit(0))
-        if revision != "0004_contact_briefs":
+        if revision != "0006_ai_runs":
             raise HTTPException(503, "Run uv run alembic upgrade head")
     except SQLAlchemyError:
         raise HTTPException(503, "Check database connection and run migrations") from None
@@ -228,6 +229,13 @@ def pending_review_capture(db, user, session_id, capture_id, lock=False):
     return c
 
 
+def traced(run, result, kept):
+    """These helpers fall back to local output themselves; record why when the model answered."""
+    if result.get("method") != "llm" and run.output is not None:
+        run.reject(result.get("warning") or "AI output rejected")
+    run.result = kept
+
+
 @router.post("/sessions/{session_id}/captures/{capture_id}/analyze", dependencies=writes)
 def analyze_capture(session_id: UUID, capture_id: UUID, body: SourceRequest, user: Owner, db: DB):
     if not body.source_text.strip():
@@ -237,7 +245,9 @@ def analyze_capture(session_id: UUID, capture_id: UUID, body: SourceRequest, use
         if c.analysis["method"] == "llm" or not configured():
             return c.analysis
     db.rollback()  # Never hold row locks or a database transaction across a provider call.
-    result = analyze_source(body.source_text)
+    with ai_run(user.id, "source_analysis", str(capture_id), run_id=str(session_id)) as run:
+        result = analyze_source(body.source_text)
+        traced(run, result, result.get("suggestions"))
     c = pending_review_capture(db, user, session_id, capture_id, lock=True)
     c.analysis = result  # Suggestions only: never change details, decision or action counts.
     db.commit()
@@ -268,7 +278,9 @@ def recap_analysis(session_id: UUID, user: Owner, db: DB):
         return recap_view(recap)
     payload = recap.payload
     db.commit()
-    result = reflect_on_recap(payload)
+    with ai_run(user.id, "recap_reflection", str(session_id)) as run:
+        result = reflect_on_recap(payload)
+        traced(run, result, {"observations": result.get("observations")})
     session = session_for(db, user, session_id, True)
     recap = ensure_recap(db, session)
     recap.reflection = result

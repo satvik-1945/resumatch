@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import Field
 from sqlalchemy import select
 
+from resumatch.ai_runs import ai_run
 from resumatch.auth import DB, Owner, require_origin
 from resumatch.duplicates import normalized_name, profile_identity
 from resumatch.intelligence import local_suggestions, provider_json
@@ -230,51 +231,60 @@ def process_capture(sid: UUID, cid: UUID, user: Owner, db: DB):
         and capture.analysis.get("source_sha256") == sha and capture.analysis.get("method") == "llm"
     ):
         return {"capture": capture_view(capture), "cached": True}
-    db.rollback()
-    method, warning, failure, rejected = "llm", None, None, []
-    try:
-        output = provider_json(definition["output_schema"], definition["system_prompt"],
-                               {"raw_text": source})
-    except ValueError as error:
-        failure, warning = "provider", str(error)
-    else:
+    with ai_run(user.id, "capture_fields", str(cid), run_id=str(sid), workflow_id=str(wid),
+                workflow_version=version) as run:
+        db.rollback()
+        method, warning, failure, rejected = "llm", None, None, []
         try:
-            output, rejected = ground_output(output, source, definition)
+            output = provider_json(definition["output_schema"], definition["system_prompt"],
+                                   {"raw_text": source})
         except ValueError as error:
-            failure, warning = "output", str(error)
-    local, _ = ground_output(local_fields(source, definition), source, definition)
-    if failure:
-        method, rejected, output = "local", [], local
-    else:
-        # Labeled "Field: value" lines still fill whatever the model omitted or got rejected for.
-        output["fields"] = {**local["fields"], **output["fields"]}
-        if rejected:
-            warning = "Skipped AI values not found in the raw text: " + ", ".join(rejected)
-    mapped = transform_output(output, source, definition)
-    session = session_for(db, user, sid, True)
-    db.expire_all()
-    capture = db.scalar(select(Capture).where(Capture.session_id == sid, Capture.id == cid))
-    if (session.state == "completed" or capture.decision != "pending"
-            or session.workflow_version != version or raw_capture_text(capture.details) != source):
-        raise HTTPException(409, "Record or workflow changed during processing; reload and retry")
-    details = {**capture.details, "fields": dict(capture.details.get("fields", {}))}
-    filled, preserved = [], []
-    for key, value in mapped.items():
-        if value is None or value == "":
-            continue
-        target = details if key in {"person", "company"} else details["fields"]
-        if target.get(key) is not None and target.get(key) != "":
-            preserved.append(key)
+            failure, warning = "provider", str(error)
         else:
-            target[key] = value
-            filled.append(key)
-    capture.details = validate_fields(db, session, details)
-    capture.analysis = {"schema_version": 2, "workflow_id": str(wid), "workflow_version": version,
-                        "method": method,
-                        "model": get_settings().llm_model if method == "llm" else None,
-                        "source_text": source, "source_sha256": sha,
-                        "processed_at": datetime.now(UTC).isoformat(), "fields": output["fields"],
-                        "filled_fields": filled, "preserved_fields": preserved,
-                        "rejected_fields": rejected, "failure": failure, "warning": warning}
-    db.commit()
+            try:
+                output, rejected = ground_output(output, source, definition)
+            except ValueError as error:
+                failure, warning = "output", str(error)
+                run.reject(warning)
+        local, _ = ground_output(local_fields(source, definition), source, definition)
+        if failure:
+            method, rejected, output = "local", [], local
+        else:
+            # Labeled "Field: value" lines still fill what the model omitted or got rejected for.
+            output["fields"] = {**local["fields"], **output["fields"]}
+            if rejected:
+                warning = "Skipped AI values not found in the raw text: " + ", ".join(rejected)
+        mapped = transform_output(output, source, definition)
+        session = session_for(db, user, sid, True)
+        db.expire_all()
+        capture = db.scalar(select(Capture).where(Capture.session_id == sid, Capture.id == cid))
+        if (session.state == "completed" or capture.decision != "pending"
+                or session.workflow_version != version
+                or raw_capture_text(capture.details) != source):
+            raise HTTPException(409, "Record or workflow changed during processing; "
+                                     "reload and retry")
+        details = {**capture.details, "fields": dict(capture.details.get("fields", {}))}
+        filled, preserved = [], []
+        for key, value in mapped.items():
+            if value is None or value == "":
+                continue
+            target = details if key in {"person", "company"} else details["fields"]
+            if target.get(key) is not None and target.get(key) != "":
+                preserved.append(key)
+            else:
+                target[key] = value
+                filled.append(key)
+        capture.details = validate_fields(db, session, details)
+        capture.analysis = {
+            "schema_version": 2, "workflow_id": str(wid), "workflow_version": version,
+            "method": method, "model": get_settings().llm_model if method == "llm" else None,
+            "source_text": source, "source_sha256": sha,
+            "processed_at": datetime.now(UTC).isoformat(), "fields": output["fields"],
+            "filled_fields": filled, "preserved_fields": preserved,
+            "rejected_fields": rejected, "failure": failure, "warning": warning,
+            "ai_run_id": str(run.id)}
+        run.result = {"method": method, "fields": output["fields"], "filled_fields": filled,
+                      "preserved_fields": preserved}
+        run.rejected = rejected
+        db.commit()
     return {"capture": capture_view(capture), "cached": False}
