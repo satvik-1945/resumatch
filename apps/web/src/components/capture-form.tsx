@@ -1,22 +1,43 @@
 "use client";
-import { useRef, useState, type FormEvent } from "react";
-import { actionLabels, api, blank, rawText, type Capture, type Details, type WorkflowField } from "@/lib/api";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { actionLabels, api, blank, confirmedActions, processCapture, rawText, type Capture, type Details, type WorkflowField } from "@/lib/api";
 
-export function CaptureForm({ sessionId, capture, editing = false, fields = [], compact = false, onSaved }: {
-  sessionId: string; capture?: Capture; editing?: boolean; fields?: WorkflowField[]; compact?: boolean; onSaved: () => Promise<void>;
+function editable(details: Details): Details {
+  return { ...details, notes: rawText(details), quote: "", fields: { ...details.fields } };
+}
+
+export function CaptureForm({ sessionId, capture, editing = false, fields = [], compact = false, locked = false, onDirtyChange, onSaved }: {
+  sessionId: string; capture?: Capture; editing?: boolean; fields?: WorkflowField[]; compact?: boolean; locked?: boolean;
+  onDirtyChange?: (id: string, dirty: boolean) => void; onSaved: () => Promise<void>;
 }) {
-  const [value, setValue] = useState<Details>(() => {
-    const data = capture?.details ?? { ...blank };
-    return { ...data, notes: rawText(data), quote: "", fields: { ...data.fields } };
-  });
+  const [processing, setProcessing] = useState(false);
+  const incoming = JSON.stringify(capture?.details ?? blank);
+  const [stored, setStored] = useState(incoming);
+  const [dirty, setDirty] = useState(false);
+  const [value, setValue] = useState<Details>(() => editable(capture?.details ?? blank));
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const requestId = useRef<string | null>(null);
-  function field<K extends keyof Details>(key: K, val: Details[K]) { setValue(v => ({ ...v, [key]: val })); setSuccess(""); }
+  const formId = `${sessionId}:${capture?.id ?? "new"}`;
+  useEffect(() => () => onDirtyChange?.(formId, false), [formId, onDirtyChange]);
+  // Refresh clean forms when processing returns, even if a fallback retry has the same source
+  // hash. Never remount or replace an unsaved manual draft during polling.
+  if (stored !== incoming && !dirty && !busy) {
+    setStored(incoming); setValue(editable(capture?.details ?? blank)); setConfirmed(false);
+  }
+  function markDirty(next: boolean) { setDirty(next); onDirtyChange?.(formId, next); }
+  function field<K extends keyof Details>(key: K, val: Details[K]) {
+    const next = { ...value, [key]: val };
+    setValue(next); markDirty(JSON.stringify(next) !== JSON.stringify(editable(JSON.parse(stored)))); setSuccess("");
+  }
   async function save(event?: FormEvent<HTMLFormElement>, discard = false) {
-    event?.preventDefault(); setBusy(true); setError(""); setSuccess("");
+    event?.preventDefault();
+    // "Capture & process with AI" submits the same form, so browser validation still applies.
+    const thenProcess = !capture && (event?.nativeEvent as SubmitEvent | undefined)?.submitter?.dataset.process === "1";
+    if (thenProcess && !value.notes.trim()) { setError("Paste raw capture text so AI has something to process."); return; }
+    setBusy(true); setError(""); setSuccess("");
     try {
       if (capture) {
         if (editing) await api(`/sessions/${sessionId}/captures/${capture.id}`, "PUT", { details: value });
@@ -25,22 +46,29 @@ export function CaptureForm({ sessionId, capture, editing = false, fields = [], 
         });
       } else {
         requestId.current ??= crypto.randomUUID();
-        await api(`/sessions/${sessionId}/captures`, "POST", { request_id: requestId.current, details: value });
-        requestId.current = null; setValue({ ...blank, fields: {} }); setSuccess("Captured for review. It does not count until approved.");
+        const created = await api<Capture>(`/sessions/${sessionId}/captures`, "POST", { request_id: requestId.current, details: value });
+        requestId.current = null; setValue({ ...blank, fields: {} }); markDirty(false);
+        setSuccess("Captured for review. It does not count until approved.");
+        if (thenProcess) {
+          setProcessing(true); await onSaved();
+          setSuccess(`Captured for review. ${await processCapture(sessionId, created.id)}`);
+        }
       }
       await onSaved();
-    } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+      markDirty(false);
+    } catch (e) { setError((e as Error).message); } finally { setBusy(false); setProcessing(false); }
   }
   async function saveDraft() {
     if (!capture) return;
     setBusy(true); setError("");
-    try { await api(`/sessions/${sessionId}/captures/${capture.id}`, "PUT", { details: value }); await onSaved(); setSuccess("Draft changes saved. You can now process this raw text with AI."); }
+    try { await api(`/sessions/${sessionId}/captures/${capture.id}`, "PUT", { details: value }); await onSaved(); markDirty(false); setSuccess("Draft changes saved. You can now process this raw text with AI."); }
     catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
-  const needsConfirmation = ["connection_requested", "sent", "followed_up", "replied"].includes(value.action);
+  const needsConfirmation = confirmedActions.includes(value.action);
   const form = <form className="capture-form" onSubmit={save}>
     {error && <p className="error" role="alert">{error}</p>}
-    <fieldset disabled={busy}>
+    {dirty && <p className="hint">Unsaved manual changes. Save or cancel editing before processing with AI.</p>}
+    <fieldset disabled={busy || locked}>
     <label>Raw capture text<textarea aria-label="Raw capture text" rows={5} maxLength={16000} value={value.notes} onChange={e => field("notes", e.target.value)} placeholder="Paste the profile snippet, conversation context, or your rough notes here. Process with AI fills this workflow’s fields." /><span className="hint">One input for the rough material. Keep the contact URL; other details can be filled by AI or edited below.</span></label>
     <div className="form-grid">
       <label className="wide">Contact URL<input type="url" required maxLength={2000} value={value.source_url} placeholder="https://www.linkedin.com/in/…" onChange={e => field("source_url", e.target.value)} /></label>
@@ -57,7 +85,7 @@ export function CaptureForm({ sessionId, capture, editing = false, fields = [], 
       <label>Activity time<input type="datetime-local" value={value.occurred_at ? localDate(value.occurred_at) : ""} onChange={e => field("occurred_at", e.target.value ? new Date(e.target.value).toISOString() : null)} /></label>
     </div>
     {capture && !editing && needsConfirmation && <label className="check"><input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />I confirm this action actually happened with the named person. This is my record, not platform-verified delivery.</label>}
-    <div className="button-row"><button className="primary" disabled={busy || (!!capture && !editing && needsConfirmation && (!confirmed || !value.person.trim()))}>{busy ? "Saving…" : editing ? "Save capture changes" : capture ? "Approve record" : "Capture for review"}</button>
+    <div className="button-row"><button className="primary" disabled={busy || (!!capture && !editing && needsConfirmation && (!confirmed || !value.person.trim()))}>{busy && !processing ? "Saving…" : editing ? "Save capture changes" : capture ? "Approve record" : "Capture for review"}</button>{!capture && <button className="secondary" data-process="1" disabled={busy}>{processing ? "Processing with AI…" : "Capture & process with AI"}</button>}
       {capture && !editing && <><button className="secondary" type="button" disabled={busy} onClick={saveDraft}>Save draft changes</button><button className="secondary" type="button" disabled={busy} onClick={() => save(undefined, true)}>Discard</button></>}</div>
     </fieldset>{success && <p role="status" className="success">{success}</p>}
   </form>;

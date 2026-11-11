@@ -13,10 +13,12 @@ from resumatch.auth import DB, Owner, require_origin
 from resumatch.duplicates import normalized_name, profile_identity
 from resumatch.intelligence import local_suggestions, provider_json
 from resumatch.models import Capture, OutreachSession, Workflow, WorkflowVersion
+from resumatch.run_names import next_run_name
 from resumatch.schemas import Input
 from resumatch.workflow_contracts import (
     WorkflowWrite,
     compile_definition,
+    ground_output,
     template,
     transform_output,
     validate_record_fields,
@@ -65,11 +67,17 @@ def workflow_view(db, item):
     )).all()
     return {"id": item.id, "name": item.name, "description": item.description, "kind": item.kind,
             "version": item.version, "fields": definition["fields"], "record_count": len(records),
+            "next_run_name": next_run_name(db, item.id, datetime.now(UTC)),
             "approved_count": sum(c.decision == "approved" for c in records),
+            "pending_count": sum(c.decision == "pending" for c in records),
             "runs": [{"id": s.id, "run_name": s.run_name, "intention": s.intention,
                       "state": s.state, "started_at": s.started_at,
                       "workflow_version": s.workflow_version, "elapsed_seconds": s.elapsed_seconds,
-                      "record_count": sum(c.session_id == s.id for c in records)} for s in runs]}
+                      "record_count": sum(c.session_id == s.id for c in records),
+                      "pending_count": sum(c.session_id == s.id and c.decision == "pending"
+                                           for c in records),
+                      "approved_count": sum(c.session_id == s.id and c.decision == "approved"
+                                            for c in records)} for s in runs]}
 
 
 @router.get("/workflow-templates")
@@ -223,16 +231,26 @@ def process_capture(sid: UUID, cid: UUID, user: Owner, db: DB):
     ):
         return {"capture": capture_view(capture), "cached": True}
     db.rollback()
-    method, warning = "llm", None
+    method, warning, failure, rejected = "llm", None, None, []
     try:
         output = provider_json(definition["output_schema"], definition["system_prompt"],
                                {"raw_text": source})
-        mapped = transform_output(output, source, definition)
     except ValueError as error:
-        method = "local"
-        warning = str(error) if type(error) is ValueError else "AI returned invalid workflow output"
-        output = local_fields(source, definition)
-        mapped = transform_output(output, source, definition)
+        failure, warning = "provider", str(error)
+    else:
+        try:
+            output, rejected = ground_output(output, source, definition)
+        except ValueError as error:
+            failure, warning = "output", str(error)
+    local, _ = ground_output(local_fields(source, definition), source, definition)
+    if failure:
+        method, rejected, output = "local", [], local
+    else:
+        # Labeled "Field: value" lines still fill whatever the model omitted or got rejected for.
+        output["fields"] = {**local["fields"], **output["fields"]}
+        if rejected:
+            warning = "Skipped AI values not found in the raw text: " + ", ".join(rejected)
+    mapped = transform_output(output, source, definition)
     session = session_for(db, user, sid, True)
     db.expire_all()
     capture = db.scalar(select(Capture).where(Capture.session_id == sid, Capture.id == cid))
@@ -256,6 +274,7 @@ def process_capture(sid: UUID, cid: UUID, user: Owner, db: DB):
                         "model": get_settings().llm_model if method == "llm" else None,
                         "source_text": source, "source_sha256": sha,
                         "processed_at": datetime.now(UTC).isoformat(), "fields": output["fields"],
-                        "filled_fields": filled, "preserved_fields": preserved, "warning": warning}
+                        "filled_fields": filled, "preserved_fields": preserved,
+                        "rejected_fields": rejected, "failure": failure, "warning": warning}
     db.commit()
     return {"capture": capture_view(capture), "cached": False}

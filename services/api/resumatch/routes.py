@@ -12,10 +12,27 @@ from resumatch.duplicates import duplicate_of, same_subject
 from resumatch.intelligence import SourceRequest, analyze_source, configured, reflect_on_recap
 from resumatch.models import Capture, OutreachSession, Pairing, SessionEvent, User, Workflow
 from resumatch.recaps import ensure_recap
-from resumatch.schemas import CaptureInput, EditCapture, Goal, PairInput, Review, Start, Transition
+from resumatch.run_names import next_run_name
+from resumatch.schemas import (
+    BulkApprove,
+    CaptureInput,
+    EditCapture,
+    Goal,
+    PairInput,
+    Review,
+    Start,
+    Transition,
+)
 from resumatch.workflow_contracts import WorkflowWrite, template
-from resumatch.workflows import create_workflow, definition_for, owned_workflow, validate_fields
+from resumatch.workflows import (
+    create_workflow,
+    definition_for,
+    owned_workflow,
+    raw_capture_text,
+    validate_fields,
+)
 
+CONFIRMED_ACTIONS = {"connection_requested", "sent", "followed_up", "replied"}
 router = APIRouter(prefix="/api")
 writes = [Depends(require_origin)]
 
@@ -41,6 +58,10 @@ def capture_view(c):
             "analysis": c.analysis}
 
 
+def pasted_text_key(details):
+    return " ".join(raw_capture_text(details).casefold().split())
+
+
 def session_view(db, s, include_captures=False):
     captures = db.scalars(select(Capture).where(Capture.session_id == s.id)
                          .order_by(Capture.created_at, Capture.id)).all()
@@ -51,6 +72,7 @@ def session_view(db, s, include_captures=False):
     result = {"id": s.id, "intention": s.intention, "state": s.state,
               "workflow_id": s.workflow_id, "workflow_version": s.workflow_version,
               "workflow_name": db.get(Workflow, s.workflow_id).name, "run_name": s.run_name,
+              "workflow_kind": db.get(Workflow, s.workflow_id).kind,
               "field_definition": definition_for(db, s)["fields"],
               "target_minutes": s.target_minutes, "elapsed_seconds": elapsed,
               "started_at": s.started_at, "finished_at": s.finished_at,
@@ -68,6 +90,19 @@ def session_view(db, s, include_captures=False):
             records.append(item)
             if c.decision != "discarded":
                 seen.append(c)
+        # Identical pasted text under different profiles usually means a stale clipboard. Flag
+        # every record in the group: only the user can tell which profile the text belongs to.
+        by_text = {}
+        for c in seen:
+            if text := pasted_text_key(c.details):
+                by_text.setdefault(text, []).append(c)
+        for item in records:
+            group = by_text.get(pasted_text_key(item["details"]), []) if (
+                item["decision"] != "discarded") else []
+            item["same_raw_text_as"] = next((
+                c.id for c in group if c.id != item["id"]
+                and not same_subject(c.details, item["details"])
+            ), None)
         result["captures"] = records
     return result
 
@@ -82,7 +117,7 @@ def ready(db: DB):
     try:
         revision = db.scalar(text("SELECT version_num FROM alembic_version"))
         db.execute(select(OutreachSession.id).limit(0))
-        if revision != "0003_workflows":
+        if revision != "0004_contact_briefs":
             raise HTTPException(503, "Run uv run alembic upgrade head")
     except SQLAlchemyError:
         raise HTTPException(503, "Check database connection and run migrations") from None
@@ -104,10 +139,12 @@ def start(body: Start, user: Owner, db: DB):
         workflow = create_workflow(db, user.id, WorkflowWrite(**{
             **template("founder_connections"), "name": body.intention, "kind": "custom"
         }))
-    session = OutreachSession(user_id=user.id, running_since=now(), intention=body.intention,
+    at = now()
+    session = OutreachSession(user_id=user.id, running_since=at, started_at=at,
+                              intention=body.intention,
                               target_minutes=body.target_minutes, workflow_id=workflow.id,
                               workflow_version=workflow.version,
-                              run_name=body.run_name or now().date().isoformat())
+                              run_name=body.run_name or next_run_name(db, workflow.id, at))
     db.add(session)
     db.flush()
     db.add(SessionEvent(session_id=session.id, action="start"))
@@ -278,9 +315,7 @@ def review(session_id: UUID, capture_id: UUID, body: Review, user: Owner, db: DB
         raise HTTPException(404, "Capture not found")
     if s.state != "review" or c.decision != "pending":
         raise HTTPException(409, "Only pending captures in a finished session can be reviewed")
-    if body.decision == "approved" and body.details.action in {
-        "connection_requested", "sent", "followed_up", "replied"
-    }:
+    if body.decision == "approved" and body.details.action in CONFIRMED_ACTIONS:
         if not body.confirmed_action or not body.details.person:
             raise HTTPException(422, "Name the person and confirm this action actually happened")
     details = validate_fields(db, s, body.details.model_dump(mode="json"))
@@ -290,6 +325,43 @@ def review(session_id: UUID, capture_id: UUID, body: Review, user: Owner, db: DB
     c.details, c.decision, c.reviewed_at = details, body.decision, now()
     db.commit()
     return capture_view(c)
+
+
+@router.post("/sessions/{session_id}/captures/bulk-approve", dependencies=writes)
+def bulk_approve(session_id: UUID, body: BulkApprove, user: Owner, db: DB):
+    """Approve the listed pending records as saved. Anything needing a person's judgement is
+    skipped with a reason, never approved: confirmed actions, duplicates and reused pasted text."""
+    s = session_for(db, user, session_id, True)
+    if s.state != "review":
+        raise HTTPException(409, "Only pending captures in a finished session can be reviewed")
+    view = {item["id"]: item for item in session_view(db, s, True)["captures"]}
+    approved, skipped = [], []
+    for cid in dict.fromkeys(body.capture_ids):
+        item = view.get(cid)
+        c = db.get(Capture, cid) if item else None
+        if c is None:
+            reason = "Not in this run"
+        elif c.decision != "pending":
+            reason = "Already reviewed"
+        elif c.details["action"] in CONFIRMED_ACTIONS:
+            reason = "Needs your confirmation that the action happened"
+        elif item["duplicate_of"] or item["same_raw_text_as"]:
+            reason = "Possible duplicate; review it individually"
+        elif duplicate_of(db, s.id, c.details, c.id, approved_only=True):
+            reason = "Same contact already approved in this run"
+        else:
+            reason = None
+        if reason:
+            skipped.append({"id": cid, "reason": reason})
+            continue
+        details = validate_fields(db, s, dict(c.details))
+        details["occurred_at"] = details["occurred_at"] or c.original["occurred_at"]
+        c.details, c.decision, c.reviewed_at = details, "approved", now()
+        db.flush()
+        approved.append(cid)
+    db.commit()
+    return {"approved": approved, "skipped": skipped,
+            "session": session_view(db, s, include_captures=True)}
 
 
 @router.get("/overview")

@@ -344,3 +344,163 @@ Current processing is a resumable foreground UI loop, not a server-side schedule
 run per account remains. Completed/approved records are not silently enriched; historical amendment
 needs a separate reviewed design. Identity consolidation is deterministic, not fuzzy verification.
 Only the latest per-record AI result is stored, alongside immutable original data and versioned DSL.
+
+## Same-day repeat runs and manual-value preservation — 2026-11-11
+
+User asked to inspect the DB, ensure AI never overwrites manually filled records, and allow
+multiple sessions of a workflow in a day with optional names or date + numbered defaults.
+
+### Inspection
+
+- Read-only project DB checks found **2 workflows, 3 runs, 44 captures, 40 pending**. Only one
+  capture had workflow-analysis schema v2. That result had method `local`, warning
+  `AI field is not supported by the raw text`, and empty filled/preserved lists. Its original
+  name and company were both empty and unchanged. No record was processed or renamed during
+  inspection; the stored attempt rejected unsupported facts rather than silently filling them.
+- Code inspection confirmed the server already merges into freshly reloaded details after the
+  provider call and only fills null/empty fields. Added targeted tests rather than weakening
+  evidence validation. Original-data comparisons alone cannot attribute later edits to AI.
+
+### Changes
+
+- `run_names.py` generates per-workflow UTC-day names: date, date (1), date (2), etc. All same-day
+  sessions count, including custom/renamed runs; explicit occupied suffixes are skipped. A new UTC
+  day or different workflow has an independent sequence. Creation assigns one consistent server
+  timestamp and allocates under the existing owner lock. No migration or existing-name rewrite.
+- Blank/whitespace run names now mean automatic naming. The start form still accepts a custom
+  name and shows the server's next-name preview, with repeat-run/UTC guidance. The existing one-open-
+  run rule remains: finish/review/complete the current run, then start another on the same day.
+- Process with AI is disabled while capture forms contain unsaved edits. Editable fields are
+  locked during a processing pass, and Finish & review waits for edits to be saved/cancelled.
+  Removed AI-source-hash form remounting: clean forms refresh on changed stored details, while
+  polling does not replace an unsaved draft. A same-source fallback retry can now refresh fields.
+- Tests explicitly verify saved names/company/custom text, `0`, `false`, concurrent manual saves
+  during provider latency, manual corrections after processing, cached reruns and changed-source
+  reruns. None are overwritten by AI; only empty fields are filled and originals remain intact.
+
+### Verification
+
+- `uv run ruff check . && uv run pytest -q services/api/tests/test_workflows.py services/api/tests/test_sessions.py`:
+  **31 focused PostgreSQL tests passed**, lint passed.
+- `uv run ruff check . && uv run pytest -q && uv run alembic check`: **52 tests passed**, no schema
+  drift. Existing upstream Starlette/httpx deprecation warning remains.
+- From apps/web, `npm exec --yes --package=node@22 -c 'npm run typecheck && npm run lint'`: passed.
+- From apps/web, `npm exec --yes --package=node@22 -c 'npm run test:e2e && npm run build'`:
+  **6 browser tests passed**, production build passed. Added four sequential same-day runs with
+  defaults/custom names, and desktop/mobile unsaved-edit blocking + in-flight input-lock checks.
+- Tests used disposable DB data and synthetic provider output; no live LLM calls or user records
+  changed for testing. Next experiment: save any manual corrections, rerun processing, then complete
+  the current review and start a second named/default run. Existing 40-record review remains intact.
+- Final read-only live DB check still showed **2 workflows, 3 runs, 44 captures, 40 pending, one
+  workflow-processed record**. Restarted only the verified project's API process to load the new
+  naming behavior. API readiness healthy, web HTTP 200, and `git diff --check` passed. No migration,
+  existing-name rewrite, commit, deployment, or unrelated database changes.
+
+## Process with AI stuck on the first record — 2026-11-11
+
+User reported the AI button "not working". The API log showed clicks did reach
+`process-ai` and return 200. The first pending record's model answer was rejected wholesale
+(`AI field is not supported by the raw text`) because one field failed exact-substring grounding,
+the record fell back to `local`, and the UI stopped the whole pass on any non-LLM result. Each click
+therefore retried, and paid for, the same first record and never progressed.
+
+### Changes
+
+- `ground_output` in `workflow_contracts.py` checks evidence per field. It drops only
+  unsupported/invalid values and returns them as `rejected_fields`. Matching normalizes
+  whitespace, case, NFKC and smart quotes/dashes, never wording. Unknown/system fields or missing
+  evidence still reject the whole answer. `transform_output` remains strict for callers that need it.
+- `process_capture` separates `failure: "provider"` from `failure: "output"`. A partially grounded
+  answer stays `method: "llm"` (cached as before), with a warning naming skipped fields. Labeled
+  local `Field: value` lines fill fields the model omitted or got rejected for. The fill-empty-only
+  merge, original data and manual-value preservation are unchanged. No migration; analysis JSON
+  gained two keys.
+- `run-ai.tsx` stops only on provider failure and counts flagged records in the final status.
+
+### Verification
+
+- `uv run ruff check . && uv run pytest -q && uv run alembic check`: **54 passed**, no drift. Added
+  partial-grounding/normalization/caching and provider-vs-output failure tests. Moved the concurrent
+  edit check to a fresh record because a partial LLM result is now cached.
+- From apps/web: typecheck, lint, and `npm run test:e2e`: **7 browser tests passed**, including new
+  `ai-pass.spec.ts` (flagged records continue; provider failure stops at the third record).
+- Read-only live dry run on the previously failed record (one real provider call, no DB write):
+  the model returned person/location/role. Old code discarded all three; now person and location are
+  kept, and role (not literally in the text) is skipped.
+- Live DB unchanged: **2 workflows, 3 runs, 44 captures, 40 pending, 1 workflow-processed**.
+  Restarted only the project API on :8000; readiness healthy.
+- Next experiment: click Process with AI on the 40-record review. Check how many fields were
+  skipped per record. If `role`/`hiring_signal` are often skipped, adjust their instructions
+  to ask for verbatim phrases.
+
+## Reused pasted text + bulk approve — 2026-11-11
+
+User spotted "anchal Kokkuvayil" twice and asked for other repeats plus a bulk approve button.
+
+### Inspection (read-only)
+
+- The two Anchal records share identical raw text but have different URLs (`/in/chanchalkg`,
+  `/in/ossareh`), saved 20s apart: the second profile was saved with the previous clipboard.
+- Same pattern in **4 pairs**, all pending in run 2026-11-10: Anchal Kokkuvayil
+  (chanchalkg / ossareh), Maria Cannizzo (mariacannizzo / chaz-guinn-25695b35), Sudhakar
+  Kondisetty (sksgsc / sanjibkalita), Winston Damarillo (wdamarillo / vincemolinari). The first
+  URL in each pair matches the name; the second profile's own text was never captured.
+- Carolina Di Renzo same-URL pair (2026-11-09) was already resolved: one approved, one discarded.
+- No records were changed; the user decides which to re-paste or discard.
+
+### Changes
+
+- `session_view` adds `same_raw_text_as`, and the review card shows a stale-clipboard notice.
+- `POST /sessions/{id}/captures/bulk-approve` plus a two-step **Approve all eligible (N)** button.
+  It skips confirmed actions, duplicates, reused-text records and already-approved contacts.
+  `confirmedActions` is shared in `lib/api.ts`. No migration.
+
+### Verification
+
+- `uv run ruff check . && uv run pytest -q`: **55 passed** (new flag/bulk test incl. ownership,
+  wrong state, skip reasons, late records untouched, idempotent re-run).
+- From apps/web: typecheck, lint, `npm run test:e2e`: **8 passed** (new `bulk-approve.spec.ts`).
+- Read-only check on the live 2026-11-10 run: 40 pending, 8 flagged (the 4 pairs), 0 duplicates,
+  0 needing confirmation, **32 bulk-eligible**. Restarted only the project API; healthy.
+- Next experiment: fix or discard the 4 flagged second records, run Process with AI, spot-check
+  fields, then Approve all eligible and approve the corrected ones individually.
+
+## Review filters, card counts, consolidated manual entry — 2026-11-11
+
+User asked for Waiting for review / Approved filters with totals visible on cards before
+opening, and manual entry with the AI button in the consolidated view.
+
+### Changes
+
+- `workflow_view` adds workflow `pending_count` and per-run `pending_count`/`approved_count`.
+  No migration.
+- Workflow cards show Total records / Waiting for review / Approved. Run rows show waiting and
+  approved counts.
+- Shared `FilterChips` (All / Waiting for review / Approved [/ Discarded]) with counts. Used for
+  dated runs, consolidated contacts and a run's records.
+- `WorkflowEntry` in consolidated records reuses `CaptureForm` and `RunAI`. It targets this workflow's
+  open active run (Resume if paused; explicit start if none). It doesn't bypass a run in review or
+  another workflow's open run.
+
+### Verification
+
+- `uv run ruff check . && uv run pytest -q`: **55 passed** (count assertions added).
+- From apps/web: typecheck, lint, `npm run test:e2e`: **9 passed**, including new
+  `workflow-filters.spec.ts` (start run from consolidated view, two manual records, AI provider error
+  keeps local fill, chips/counts on contacts, runs, records, card).
+- Live read-only state: run 2026-11-10 is in review with **36 approved, 1 waiting, 3 discarded**.
+  Earlier runs are completed. Until that review is completed, consolidated manual entry shows
+  "in review" with an Open review button. Restarted only the project API; healthy.
+- Next experiment: finish the last pending record, complete 2026-11-10, then add a record from
+  consolidated view and process it with AI.
+
+### Follow-up: Process with AI disabled on a new manual record
+
+User filled the consolidated-view form and found Process with AI disabled. This was expected:
+the record was unsaved (dirty form) and the run had 0 saved pending raw-text records. Two clicks
+were needed (Capture for review, then Process with AI), which was not obvious. Added a
+**Capture & process with AI** submit button to every new-record form. It keeps browser validation,
+requires raw text, saves, then calls `process-ai` for that record only and reports the outcome
+inline: AI filled / skipped fields, provider unavailable, or rejected answer. The disabled-state hint
+now points to it. No API change. Verification: typecheck, lint, **9 browser tests passed**; the
+filters spec covers the validation block, then a one-step capture + local fill without a provider key.

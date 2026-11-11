@@ -57,18 +57,29 @@ There is no seed data or required candidate-profile form. API docs: http://127.0
 1. Open **Workflows → Create workflow**. Start with founder connections, the contact-outreach
    template, or only contact fields. Name it, edit/add fields and their extraction instructions,
    then **Save workflow**. Contact URL, Name and Company stay available; other fields are optional.
-2. Open the workflow and **Start a run**. A run defaults to its UTC date and can be renamed.
+2. Open the workflow and **Start a run**. Enter an optional session name, or leave it blank for
+   the suggested UTC date-based name: `2026-11-11`, `2026-11-11 (1)`, `2026-11-11 (2)`, etc.
+   Repeat the same workflow after completing the previous run; there is no one-run-per-day limit.
+   Numbering is per workflow and UTC day, including custom-named or subsequently renamed runs.
    Choose an intention/time, then **Start run**. Pause before a break; closing the page doesn't pause.
 3. Capture the **Contact URL** and paste **Raw capture text** in the extension or manual form.
    The same box holds copied snippets, context and rough notes. Known fields can be entered,
    otherwise leave them blank for processing. No separate page-title/source-analysis input.
 4. At the top of the run, **Process with AI** works through pending saved raw text using the
    workflow's field DSL and JSONata. Progress is saved per record; stop after the current record
-   or resume later. Existing non-empty fields are preserved. Unknowns remain empty. Provider
-   failure stops the pass and shows any local fallback rather than repeatedly charging retries.
+   or resume later. Existing non-empty fields are preserved, including numeric `0` and boolean
+   `false`. Unsaved capture edits must be saved/cancelled before processing; form fields are
+   temporarily disabled during an AI pass. Unknowns remain empty. Each AI value must appear in
+   a quote found in the raw text (ignoring spacing, case and smart quotes); unsupported values are
+   skipped individually and named on the record, and the pass continues. Only a provider failure
+   (key, quota, network) stops the pass, rather than repeatedly charging retries.
 5. **Finish & review**. Check each compact record, expand **Review fields & approve**, correct
    extracted values, then approve/discard. Requests, messages, follow-ups and replies require your
    explicit confirmation; AI cannot infer actions from a profile's buttons or “Pending” text.
+   **Approve all eligible** (two-step) approves the listed pending records as saved, skipping
+   confirmed actions and possible duplicates. Records whose pasted text matches another record
+   under a different profile URL are flagged as a likely stale clipboard; fix or discard those.
+   Filter chips (All / Waiting for review / Approved, with counts) narrow a run's records.
 6. **Complete session** to save the run and recap. Return to the parent workflow for dated runs
    or **Consolidated records**. Repeated profile identities across dates share one contact row,
    with each run/action/decision still visible. Pending records are labeled and discarded ones excluded.

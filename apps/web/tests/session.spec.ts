@@ -45,9 +45,23 @@ for (const width of [1440, 390]) {
     await page.getByRole("combobox", { name: "Action", exact: true }).selectOption("sent");
     await expect(page.getByRole("button", { name: "Approve record" })).toBeDisabled();
     await page.getByRole("textbox", { name: "Raw capture text", exact: true }).fill("Name: Reviewed Founder\nCompany: Reviewed Labs\nRole: CTO\nBuilds payment APIs.");
+    await expect(page.getByRole("button", { name: "Process with AI", exact: true })).toBeDisabled();
+    await expect(page.getByText("Save or cancel your unsaved capture edits before processing with AI.", { exact: false })).toBeVisible();
     await page.getByRole("button", { name: "Save draft changes", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Process with AI", exact: true })).toBeEnabled();
+    let releaseProcessing!: () => void;
+    let processingStarted!: () => void;
+    const gate = new Promise<void>(resolve => { releaseProcessing = resolve; });
+    const started = new Promise<void>(resolve => { processingStarted = resolve; });
+    await page.route("**/captures/*/process-ai", async route => {
+      processingStarted(); await gate; await route.continue();
+    });
     await page.getByRole("button", { name: "Process with AI", exact: true }).click();
+    await started;
+    await expect(page.getByRole("textbox", { name: "Name", exact: true })).toBeDisabled();
+    releaseProcessing();
     await expect(page.getByLabel("Role / headline", { exact: true })).toHaveValue("CTO");
+    await expect(page.getByRole("textbox", { name: "Name", exact: true })).toBeEnabled();
     await expect(page.getByRole("textbox", { name: "Name", exact: true })).toHaveValue("Example Founder");
     await expect(page.getByLabel("Company", { exact: true })).toHaveValue("Synthetic Fintech");
     await expect(page.getByRole("combobox", { name: "Action", exact: true })).toHaveValue("sent");

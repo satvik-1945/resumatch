@@ -1,7 +1,17 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, Text, func, text
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -14,6 +24,8 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(320), unique=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     weekly_target: Mapped[int] = mapped_column(default=3, server_default="3")
+    # The sender's own background; message briefs pick credentials only from this text.
+    about_me: Mapped[str] = mapped_column(Text, default="", server_default="")
     __table_args__ = (
         CheckConstraint("weekly_target BETWEEN 1 AND 14", name="weekly_target_range"),
     )
@@ -130,3 +142,19 @@ class WorkflowVersion(Base):
     version: Mapped[int] = mapped_column(primary_key=True)
     definition: Mapped[dict] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ContactBrief(Base):
+    """Latest website research + talking points for one contact identity. Not activity."""
+    __tablename__ = "contact_briefs"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    contact_key: Mapped[str] = mapped_column(String(300))
+    company_url: Mapped[str | None] = mapped_column(String(2000))
+    research: Mapped[dict] = mapped_column(JSONB)
+    brief: Mapped[dict] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (UniqueConstraint("user_id", "contact_key", name="one_brief_per_contact"),)

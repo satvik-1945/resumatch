@@ -22,6 +22,11 @@ class Start(Input):
     workflow_id: UUID | None = None
     run_name: str | None = Field(default=None, min_length=1, max_length=200)
 
+    @field_validator("run_name", mode="before")
+    @classmethod
+    def optional_run_name(cls, value):
+        return value.strip() or None if isinstance(value, str) else value
+
 
 class Transition(Input):
     action: Literal["pause", "resume", "finish", "complete"]
@@ -70,6 +75,11 @@ class Review(Input):
     decision: Literal["approved", "discarded"]
     details: Details
     confirmed_action: bool = False
+
+
+class BulkApprove(Input):
+    # The exact records the user saw; records captured afterwards are never swept in.
+    capture_ids: list[UUID] = Field(min_length=1, max_length=500)
 
 
 class PairInput(Input):

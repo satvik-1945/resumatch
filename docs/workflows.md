@@ -4,7 +4,13 @@
 
 The repeated activity is a **workflow**; each timed session is a **run**. Existing session IDs,
 capture IDs, original text, decisions and recaps remain intact. Run names default to UTC dates
-and can be renamed without changing the original intention or activity history.
+and can be renamed without changing the original intention or activity history. The start form
+accepts an optional custom name and previews the next automatic name. Same-workflow runs on the
+same UTC day use `YYYY-MM-DD`, `YYYY-MM-DD (1)`, `YYYY-MM-DD (2)`, etc. Custom/renamed runs also
+count toward that day's sequence, and occupied suffixes are skipped. Different workflows and new
+UTC days have independent sequences. Allocation runs under the existing owner-row creation lock;
+the final server-assigned name is authoritative if the preview crosses midnight. One open run
+per account remains; completing it allows another run immediately, even on the same day.
 
 User-confirmed existing groups:
 - Fintech founder connections: the November 9 and 10 runs, including the 40-record pending review.
@@ -77,6 +83,21 @@ transactions before calling the provider and rechecks raw text/state/schema afte
 or approved record is not rewritten. Non-empty manual/custom values are preserved, including zero
 and false. Source URL, activity action, follow-up date and approval are never model-generated.
 
+Grounding is per field. A value is kept only if it appears inside its `source_quote` and that quote
+appears in the raw text, compared after normalizing whitespace, case and smart quotes/dashes (not
+wording). Unsupported or invalid values are dropped individually, listed in `rejected_fields` and
+the record's warning; the supported values still fill empty fields, and labeled `Field: value`
+lines fill anything the model omitted. Malformed/out-of-contract output (unknown or system fields,
+missing evidence) still rejects the whole answer (`failure: "output"`). Provider errors set
+`failure: "provider"`; only those stop the UI pass. Other records are flagged and the pass continues.
+
+The UI blocks Process with AI while capture forms have unsaved edits, and locks editable capture
+fields for the duration of a processing pass. Clean forms refresh when returned fields change
+(including retries whose source hash is unchanged); unsaved drafts are not remounted on AI hash
+changes. The API already reloads the latest stored details after a provider call before filling
+blanks, so manual values saved in another request during processing are also preserved. Repeated
+cached processing returns current saved details rather than replaying old model values.
+
 Successful identical text + workflow/version reuses stored results. Changed field definitions do
 not silently change an existing run: an explicit additive sync updates its version; incompatible
 type/removal changes require a new run. Old contract versions remain stored.
@@ -116,3 +137,29 @@ tests cover creating fields, dated runs, batch fallback, preserving manual field
 consolidated cross-run contacts and native extension capture. A bounded live OpenAI request with
 synthetic profile text successfully passed the generated contract and actual JSONata mapping.
 The user's 40 real records were **not** automatically sent to the provider during implementation.
+
+## Reused pasted text and bulk approve
+
+Session views mark `same_raw_text_as` when a non-discarded record's raw text (whitespace/case
+normalized) equals another record's under a different subject, usually a stale clipboard after
+moving to the next profile. Every record in the group is flagged; only the user knows which profile
+the text belongs to. `POST /api/sessions/{id}/captures/bulk-approve` takes the exact capture IDs
+the user saw (max 500) in a review-state run. It approves those records as saved and skips, with a
+reason: non-pending records, connection requests/sent/follow-ups/replies (always individually
+confirmed), `duplicate_of`/`same_raw_text_as` records, and contacts already approved in the run.
+Records captured after the list was shown are never swept in. The UI asks for confirmation first
+and is disabled while edits are unsaved or AI is processing.
+
+## Review counts, filters and consolidated manual entry
+
+Workflow cards show total, waiting-for-review and approved counts (discarded excluded) before
+opening. `workflow_view` returns `pending_count` per workflow and `pending_count`/`approved_count`
+per run. Filter chips with counts are client-side: dated runs (runs with any pending/approved
+record), consolidated contacts (any entry with that decision) and a run's records (also Discarded
+when present). Filters never change bulk approval, which still uses the full eligible list.
+
+**Consolidated records → + Add a record manually** reuses the capture form and Process with AI. A
+record always belongs to a run: the form adds to this workflow's open active run. If the run is
+paused it offers Resume. If none is open it offers an explicit "Start a run for manual entries"
+(next default name; starts the timer). A run in review or another workflow's open run is not
+bypassed; the UI explains what to finish first. Records still need approval in review.

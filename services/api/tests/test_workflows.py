@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
@@ -189,18 +190,79 @@ def test_workflow_ai_bad_output_and_concurrent_edit(client, monkeypatch):
         "fields": {"person": {"value": "Unfounded", "source_quote": "Name: Mira Example"}}
     })
     result = client.post(path).json()["capture"]
-    assert result["analysis"]["method"] == "local" and result["analysis"]["warning"]
+    # The unsupported AI value is skipped; the labeled line still fills the empty field.
+    assert result["analysis"]["method"] == "llm"
+    assert result["analysis"]["rejected_fields"] == ["person"]
+    assert "person" in result["analysis"]["warning"]
     assert result["details"]["person"] == "Mira Example"
 
+    fresh = capture(client, s, notes="Name: Ada Example",
+                    source_url="https://linkedin.com/in/synthetic-ada")
+
     def edit_while_extracting(*_):
-        details = {**result["details"], "notes": "Different raw source"}
-        assert client.put(f"/api/sessions/{s['id']}/captures/{c['id']}", json={
+        details = {**fresh["details"], "notes": "Different raw source"}
+        assert client.put(f"/api/sessions/{s['id']}/captures/{fresh['id']}", json={
             "details": details
         }).status_code == 200
         return {"fields": {}}
 
     monkeypatch.setattr("resumatch.workflows.provider_json", edit_while_extracting)
-    assert client.post(path).status_code == 409
+    fresh_path = f"/api/sessions/{s['id']}/captures/{fresh['id']}/process-ai"
+    assert client.post(fresh_path).status_code == 409
+
+
+def test_one_unsupported_ai_value_does_not_discard_the_supported_ones(client, monkeypatch):
+    register(client)
+    s = start(client, workflow(client))
+    source = "Mira  Example\nCTO at Synthetic Labs \u2014 building \u201cpayments rails\u201d"
+    c = capture(client, s, notes=source)
+    calls = []
+
+    def extract(*_):
+        calls.append(1)
+        return {"fields": {
+            # Whitespace, case and smart punctuation differences are tolerated...
+            "person": {"value": "Mira Example", "source_quote": "mira example"},
+            "role": {"value": "CTO", "source_quote": 'CTO at Synthetic Labs - building "payments'},
+            # ...but inferred or reworded facts are not.
+            "industry": {"value": "Fintech", "source_quote": "building payments rails"},
+            "location": {"value": "London", "source_quote": "Mira Example"},
+            "company": {"value": "", "source_quote": ""},
+        }}
+
+    monkeypatch.setattr("resumatch.workflows.provider_json", extract)
+    path = f"/api/sessions/{s['id']}/captures/{c['id']}/process-ai"
+    result = client.post(path).json()["capture"]
+    analysis = result["analysis"]
+    assert analysis["method"] == "llm" and analysis["failure"] is None
+    assert sorted(analysis["rejected_fields"]) == ["industry", "location"]
+    assert sorted(analysis["filled_fields"]) == ["person", "role"]
+    assert result["details"]["person"] == "Mira Example"
+    assert result["details"]["fields"]["role"] == "CTO"
+    assert not result["details"]["fields"].get("industry")
+    assert not result["details"]["fields"].get("location")
+    assert not result["details"]["company"] and result["original"] == c["original"]
+    assert client.post(path).json()["cached"] is True and len(calls) == 1
+
+
+def test_provider_failure_is_flagged_separately_from_rejected_output(client, monkeypatch):
+    register(client)
+    s = start(client, workflow(client))
+    c = capture(client, s, notes="Name: Mira Example")
+    path = f"/api/sessions/{s['id']}/captures/{c['id']}/process-ai"
+
+    def unavailable(*_):
+        raise ValueError("Provider quota/rate limit reached. Check billing or retry.")
+
+    monkeypatch.setattr("resumatch.workflows.provider_json", unavailable)
+    analysis = client.post(path).json()["capture"]["analysis"]
+    assert analysis["method"] == "local" and analysis["failure"] == "provider"
+    assert "quota" in analysis["warning"]
+    monkeypatch.setattr("resumatch.workflows.provider_json", lambda *_: {"fields": {
+        "action": {"value": "sent", "source_quote": "Name: Mira Example"}
+    }})
+    analysis = client.post(path).json()["capture"]["analysis"]
+    assert analysis["method"] == "local" and analysis["failure"] == "output"
 
 
 def test_forty_raw_records_process_without_inventing_activity(client, monkeypatch):
@@ -245,3 +307,152 @@ def test_connection_requests_are_confirmed_and_separate_from_initial_messages(cl
     client.post(root + "/transition", json={"action": "complete"})
     counts = client.get(root + "/recap").json()["payload"]["action_counts"]
     assert counts["connection_requested"] == 1 and counts["sent"] == 0
+
+
+def finish_empty_run(client, run):
+    path = f"/api/sessions/{run['id']}/transition"
+    assert client.post(path, json={"action": "finish"}).status_code == 200
+    assert client.post(path, json={"action": "complete"}).status_code == 200
+
+
+def test_repeat_daily_run_names_custom_names_and_next_day(client, monkeypatch):
+    register(client)
+    parent = workflow(client)
+    at = datetime(2026, 11, 11, 12, tzinfo=UTC)
+    monkeypatch.setattr("resumatch.routes.now", lambda: at)
+    first = start(client, parent, None)
+    assert first["run_name"] == "2026-11-11"
+    finish_empty_run(client, first)
+    second = start(client, parent, " ")
+    assert second["run_name"] == "2026-11-11 (1)"
+    finish_empty_run(client, second)
+    third = start(client, parent, "")
+    assert third["run_name"] == "2026-11-11 (2)"
+    finish_empty_run(client, third)
+    custom = start(client, parent, "  Evening follow-ups  ")
+    assert custom["run_name"] == "Evening follow-ups"
+    finish_empty_run(client, custom)
+    renamed = client.put(f"/api/sessions/{second['id']}/name", json={
+        "run_name": "Lunch break"
+    })
+    assert renamed.status_code == 200
+    fourth = start(client, parent, None)
+    assert fourth["run_name"] == "2026-11-11 (4)"
+    finish_empty_run(client, fourth)
+    different = workflow(client, name="Another workflow")
+    independent = start(client, different, None)
+    assert independent["run_name"] == "2026-11-11"
+    finish_empty_run(client, independent)
+    at += timedelta(days=1)
+    tomorrow = start(client, parent, None)
+    assert tomorrow["run_name"] == "2026-11-12"
+
+
+def test_default_run_name_avoids_explicit_name_collision_and_preview_matches(client):
+    register(client)
+    parent = workflow(client)
+    today = datetime.now(UTC).date().isoformat()
+    first = start(client, parent, f"{today} (5)")
+    finish_empty_run(client, first)
+    preview = client.get("/api/workflows").json()[0]["next_run_name"]
+    assert preview == f"{today} (6)"
+    run = start(client, parent, None)
+    assert run["run_name"] == preview
+
+
+def test_ai_reruns_preserve_manual_values_and_concurrent_edits(client, monkeypatch):
+    register(client)
+    extra = [
+        {"key": "team_size", "label": "Team size", "type": "number"},
+        {"key": "is_founder", "label": "Is founder", "type": "boolean"},
+    ]
+    parent = workflow(client, fields=[*template()["fields"], *extra])
+    run = start(client, parent)
+    source = "AI Name\nAI Company\nCTO\nExample City\nTeam size: 12\nIs founder: true"
+    record = capture(client, run, notes=source, person="Manual Name", company="Manual Company",
+                     fields={"role": "Manual role", "team_size": 0, "is_founder": False})
+    root = f"/api/sessions/{run['id']}/captures/{record['id']}"
+    calls = []
+
+    def provider(_schema, _prompt, _data):
+        calls.append(True)
+        if len(calls) == 1:
+            # While the external call is pending, save edits from another request/tab.
+            saved = {**record["details"], "person": "Manual name entered during AI",
+                     "fields": {**record["details"]["fields"], "role": "New manual role"}}
+            response = client.put(root, json={"details": saved})
+            assert response.status_code == 200, response.text
+        return {"fields": {
+            "person": {"value": "AI Name", "source_quote": "AI Name"},
+            "company": {"value": "AI Company", "source_quote": "AI Company"},
+            "role": {"value": "CTO", "source_quote": "CTO"},
+            "location": {"value": "Example City", "source_quote": "Example City"},
+            "team_size": {"value": 12, "source_quote": "Team size: 12"},
+            "is_founder": {"value": True, "source_quote": "Is founder: true"},
+        }}
+
+    monkeypatch.setattr("resumatch.workflows.provider_json", provider)
+    first = client.post(root + "/process-ai")
+    assert first.status_code == 200, first.text
+    stored = first.json()["capture"]
+    assert stored["details"]["person"] == "Manual name entered during AI"
+    assert stored["details"]["company"] == "Manual Company"
+    assert stored["details"]["fields"] == {
+        "role": "New manual role", "team_size": 0, "is_founder": False, "location": "Example City"
+    }
+    assert stored["analysis"]["filled_fields"] == ["location"]
+    assert set(stored["analysis"]["preserved_fields"]) == {
+        "person", "company", "role", "team_size", "is_founder"
+    }
+    # Editing a field after successful extraction and hitting Process again must not replay it.
+    edited = {**stored["details"], "company": "Company corrected after AI"}
+    assert client.put(root, json={"details": edited}).status_code == 200
+    cached = client.post(root + "/process-ai").json()
+    assert cached["cached"] is True and len(calls) == 1
+    assert cached["capture"]["details"] == edited
+    # A changed raw source legitimately calls AI again, still preserving every populated field.
+    edited["notes"] = source + "\nExtra source context"
+    assert client.put(root, json={"details": edited}).status_code == 200
+    retried = client.post(root + "/process-ai").json()["capture"]
+    assert len(calls) == 2 and retried["details"] == edited
+    assert retried["analysis"]["filled_fields"] == []
+    assert retried["original"] == record["original"]
+    assert retried["decision"] == "pending"
+
+
+def test_reused_pasted_text_is_flagged_and_bulk_approve_skips_judgement_calls(client, other):
+    register(client)
+    s = start(client, workflow(client))
+    pasted = "Anchal Example · 2nd\nPrecision hiring\nSynthetic Partners"
+    first = capture(client, s, notes=pasted, source_url="https://www.linkedin.com/in/anchal")
+    stale = capture(client, s, notes=pasted + "\n", source_url="https://www.linkedin.com/in/oss")
+    plain = capture(client, s, notes="Name: Ada Example", source_url="https://example.com/ada")
+    sent = capture(client, s, notes="Name: Bo Example", action="sent",
+                   source_url="https://example.com/bo")
+    late = capture(client, s, notes="Name: Cy Example", source_url="https://example.com/cy")
+    root = f"/api/sessions/{s['id']}"
+    records = {c["id"]: c for c in client.get(root).json()["captures"]}
+    assert records[stale["id"]]["same_raw_text_as"] == first["id"]
+    assert records[first["id"]]["same_raw_text_as"] == stale["id"]
+    assert records[plain["id"]]["same_raw_text_as"] is None
+
+    ids = [first["id"], stale["id"], plain["id"], sent["id"]]
+    bulk = root + "/captures/bulk-approve"
+    assert client.post(bulk, json={"capture_ids": ids}).status_code == 409
+    assert client.post(root + "/transition", json={"action": "finish"}).status_code == 200
+    register(other, "other-bulk@example.com")
+    assert other.post(root + "/captures/bulk-approve",
+                      json={"capture_ids": ids}).status_code == 404
+    result = client.post(root + "/captures/bulk-approve", json={"capture_ids": ids}).json()
+    assert result["approved"] == [plain["id"]]
+    reasons = {item["id"]: item["reason"] for item in result["skipped"]}
+    assert set(reasons) == {first["id"], stale["id"], sent["id"]}
+    assert "confirmation" in reasons[sent["id"]] and "duplicate" in reasons[stale["id"]]
+    decisions = {c["id"]: c["decision"] for c in result["session"]["captures"]}
+    assert decisions[plain["id"]] == "approved" and decisions[late["id"]] == "pending"
+    assert decisions[sent["id"]] == decisions[stale["id"]] == "pending"
+    parent = client.get("/api/workflows").json()[0]
+    assert (parent["record_count"], parent["pending_count"], parent["approved_count"]) == (5, 4, 1)
+    assert (parent["runs"][0]["pending_count"], parent["runs"][0]["approved_count"]) == (4, 1)
+    again = client.post(root + "/captures/bulk-approve", json={"capture_ids": [plain["id"]]})
+    assert again.json()["skipped"] == [{"id": plain["id"], "reason": "Already reviewed"}]

@@ -2,6 +2,7 @@
 
 import json
 import math
+import unicodedata
 from datetime import date
 from typing import Literal
 from urllib.parse import urlsplit
@@ -140,22 +141,52 @@ def validate_record_fields(details, definition):
             for key, value in details.get("fields", {}).items()}
 
 
-def transform_output(output, source, definition):
+TYPOGRAPHY = str.maketrans({"‘": "'", "’": "'", "“": '"', "”": '"',
+                            "–": "-", "—": "-"})
+
+
+def comparable(text):
+    """Ignore whitespace, case and smart-quote/dash differences; never wording differences."""
+    return " ".join(unicodedata.normalize("NFKC", text).translate(TYPOGRAPHY).split()).casefold()
+
+
+def ground_output(output, source, definition):
+    """Keep only facts whose value appears in a quote that appears in the raw text.
+
+    Malformed or out-of-contract output still rejects the whole record. Individual unsupported
+    facts are dropped and reported so the supported ones can still fill empty fields.
+    """
     if (not isinstance(output, dict) or set(output) != {"fields"}
             or not isinstance(output["fields"], dict)):
         raise ValueError("AI output does not match this workflow contract")
     allowed = {f["key"]: f for f in definition["fields"] if f["key"] != "contact_url"}
     if set(output["fields"]) - set(allowed):
         raise ValueError("AI output contains unknown/system fields")
+    text, kept, rejected = comparable(source), {}, []
     for key, fact in output["fields"].items():
         if fact is None:
             continue
         if not isinstance(fact, dict) or set(fact) != {"value", "source_quote"}:
             raise ValueError("AI field is missing evidence")
-        value = validate_value(fact["value"], allowed[key])
+        try:
+            value = validate_value(fact["value"], allowed[key])
+        except ValueError:
+            rejected.append(key)
+            continue
+        if value is None:
+            continue
         quote = fact["source_quote"]
         literal = str(value).lower() if isinstance(value, bool) else str(value)
-        if (not isinstance(quote, str) or len(quote) > 2000
-                or quote not in source or literal not in quote):
-            raise ValueError("AI field is not supported by the raw text")
-    return Jsonata(definition["jsonata"]).evaluate(output)
+        if (not isinstance(quote, str) or len(quote) > 2000 or not comparable(quote)
+                or comparable(quote) not in text or comparable(literal) not in comparable(quote)):
+            rejected.append(key)
+            continue
+        kept[key] = {"value": value, "source_quote": quote}
+    return {"fields": kept}, rejected
+
+
+def transform_output(output, source, definition):
+    grounded, rejected = ground_output(output, source, definition)
+    if rejected:
+        raise ValueError("AI field is not supported by the raw text")
+    return Jsonata(definition["jsonata"]).evaluate(grounded) or {}
