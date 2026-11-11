@@ -5,10 +5,12 @@
 A private-first outreach activity tracker for Satvik's international startup/fintech job search.
 Resumatch is the working repository name. The former resume-first app was explicitly reset.
 
-- [Product baseline](PRODUCT_PLAN.md)
-- [Active checklist and exact verification results](V1_TASKS.md)
-- [daily.dev MCP/API research](docs/daily-dev-research.md)
-- [Architecture and activity definitions](docs/outreach-architecture.md)
+Project docs live in the private [personel-docs](https://github.com/satvik-1945/personel-docs/tree/main/resumatch)
+repo (locally `~/f/personel-docs/resumatch`):
+
+- [Codebase guide](https://github.com/satvik-1945/personel-docs/blob/main/resumatch/codebase-guide.md): architecture, flows, data model, invariants
+- [Product](https://github.com/satvik-1945/personel-docs/blob/main/resumatch/product.md)
+- [Dev log with exact verification results](https://github.com/satvik-1945/personel-docs/blob/main/resumatch/dev-log.md)
 
 ## What works now
 
@@ -17,7 +19,7 @@ runs, durable timers, browser/manual raw-text capture, and run-level AI processi
 generates a versioned field DSL, extraction prompt, JSON output schema and executable JSONata mapping.
 Research, drafts, connection requests, messages, follow-ups and replies remain separate. Only
 reviewed/approved records count. Completed runs have stored recap cards and downloadable JSON.
-[Workflow guide and data contracts](docs/workflows.md).
+[Workflow contracts and AI grounding](https://github.com/satvik-1945/personel-docs/blob/main/resumatch/codebase-guide.md#53-process-with-ai-workflowsprocess_capture).
 
 ## Local setup
 
@@ -108,6 +110,23 @@ capture a real follow-up action separately if you sent one.
 7. Check **Contact URL**, paste **Raw capture text**, optionally choose known details/activity,
    and **Capture for review**. Process configured fields from the run in the app.
 
+### Contact check and message briefs (Contact outreach)
+
+After you connect with someone, start a **Contact outreach** run. Open their profile and click the
+extension (reload it in `chrome://extensions` after updating; v0.5.0). It sends **only the tab's URL**
+to your API and shows right away whether that profile is already in your records (e.g. your
+Fintech founder run): name, company, fields, run, action and review state.
+
+**Generate message brief** (labeled Premium · research; not gated yet) needs **About you**, saved
+once in the app under any record's **Check records & message brief**. Optionally give the company
+website. The server reads only that public site (homepage + `/about`, never LinkedIn). It refuses
+private/local addresses, ports other than 80/443, and non-HTML. It returns talking points for a note
+you write by hand:
+what they do (each fact must quote the site or it's dropped), hooks, your matching credential,
+bridge, soft ask, things to avoid, and a reference draft to rewrite. Nothing is sent or logged as
+activity; log what you actually sent as a capture. In the app, records in Contact outreach runs with
+a LinkedIn/X profile URL have the same **Check records & message brief** panel.
+
 ### Placement and LinkedIn mode
 
 Reload the extension in `chrome://extensions` after updating to version **0.4.0**. In its popup,
@@ -121,7 +140,7 @@ extension does not execute page scripts to read LinkedIn HTML, titles, selected 
 Enter your own activity details and notes. On other normal sites, explicit selected-text capture
 is available. Our earlier non-modifying capture behavior was not enough to establish compliance:
 LinkedIn's terms also restrict software used to copy data. We do not claim LinkedIn approval or
-guarantee account safety. See the [official-source review](docs/linkedin-capture-review.md).
+guarantee account safety. See the [official-source review](https://github.com/satvik-1945/personel-docs/blob/main/resumatch/decisions/linkedin-policy.md).
 
 The movable window targets the active tab in the source browser window. After a cross-site
 navigation, Chrome may require you to invoke the toolbar again for a new activeTab grant. Use
@@ -169,7 +188,7 @@ LLM_MODEL=gpt-4.1-mini
 Restart the API after editing `.env`. The rotated key passed a live synthetic source-analysis
 check with gpt-4.1-mini; no real contact text was used. Local labeled-field suggestions
 and the full computed recap also work without it. Provider failures are shown explicitly. No real
-key belongs in `.env.example` or a browser bundle. See [workflow contracts](docs/workflows.md).
+key belongs in `.env.example` or a browser bundle. See [workflow contracts](https://github.com/satvik-1945/personel-docs/blob/main/resumatch/codebase-guide.md#6-workflow-field-dsl-workflow_contractspy).
 
 For supported non-LinkedIn pages, the extension reads the current tab only after invocation. No passive monitoring, guessed contact
 facts, automated sends or full-inbox scraping. Chrome's internal pages cannot be captured.
@@ -184,7 +203,7 @@ After editing extension files, reload the unpacked extension in Chrome.
 
 Official remote MCP endpoint: **https://api.daily.dev/mcp**. It supports personalized feeds,
 article search and post details, with OAuth or a daily.dev personal access token. It is in beta;
-access and quotas require verification with your account. See the [research note](docs/daily-dev-research.md).
+access and quotas require verification with your account. See the [research note](https://github.com/satvik-1945/personel-docs/blob/main/resumatch/decisions/daily-dev.md).
 
 The app currently offers links to daily.dev and its MCP setup guide. This is **not a connected
 feed or scheduled discovery job**. No daily.dev credential was supplied. You can immediately
@@ -249,7 +268,7 @@ volume; `docker compose down -v` deletes it.
 - **503 / readiness failure:** check the DB container, `.env` database URL, and migration head.
 - **Post-reset first start:** use the new schema head `0001_outreach`. Archived migrations are
   deliberately not part of the new chain; the earlier project reset has already been executed.
-  Existing installs now run `uv run alembic upgrade head` to reach `0003_workflows`.
+  Existing installs now run `uv run alembic upgrade head` to reach `0004_contact_briefs`.
 
 ### Inspect tables
 
@@ -302,7 +321,6 @@ apps/extension/            Explicit Chrome active-tab capture extension
 services/api/resumatch/    FastAPI auth, session/capture/review domain API
 services/api/migrations/   New Alembic schema, starting at 0001_outreach
 services/api/tests/        Real PostgreSQL tests
-docs/archive/              Superseded planning references, not active requirements
 ```
 
 Public sharing, maps, passive provider synchronization, MCP capture adapter, automatic discovery

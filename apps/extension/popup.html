@@ -12,8 +12,20 @@
   <form id="pair-form"><label>API address<select id="api"><option value="http://127.0.0.1:8000">Local API · 8000</option><option value="http://127.0.0.1:8001">Test API · 8001</option></select></label>
   <label>Pairing token<input id="token" type="password" required autocomplete="off"></label><button>Save pairing</button></form>
   <button type="button" id="forget" class="secondary">Forget local pairing</button>
-  <p>Capture-only access. Revoke server access from the web app.</p>
+  <p>Capture and contact-check access (your records + message briefs). Revoke server access from the web app.</p>
 </details>
+<section id="contact" class="contact" hidden>
+  <h2 id="contact-title"></h2>
+  <div id="contact-records"></div>
+  <p id="about-hint" class="mode-notice" hidden>Add <b>About you</b> in the app (any message brief panel) so briefs pick credentials from your real background.</p>
+  <form id="brief-form" hidden>
+    <label>Company website <span class="premium">Premium · research</span><input id="company_url" type="url" maxlength="2000" placeholder="https://company.com (optional)"></label>
+    <button id="brief-submit">Generate message brief</button>
+    <p>Reads only the company’s own public site (homepage + /about) on the server, never LinkedIn. Talking points for a note you write yourself; nothing is sent or logged.</p>
+  </form>
+  <div id="brief"></div>
+  <button type="button" id="copy-brief" class="secondary" hidden>Copy talking points</button>
+</section>
 <section id="session"></section>
 <form id="capture-form" hidden>
   <label>Contact URL<input id="source_url" type="url" required maxlength="2000"></label>

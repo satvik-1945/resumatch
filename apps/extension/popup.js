@@ -33,6 +33,78 @@ async function request(path, method = "GET", body) {
   if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : data.detail?.message || "Invalid capture. Check the URL and field lengths.");
   return data;
 }
+// Profile check: only the active tab's URL (already granted by the toolbar click) is sent.
+const profilePattern = /^https:\/\/([a-z]{2,3}\.)?linkedin\.com\/in\/[^/?#]+|^https:\/\/(www\.)?(x|twitter)\.com\/[A-Za-z0-9_]+\/?(?:[?#]|$)/i;
+const actionNames = { researched: "Researched", drafted: "Drafted", connection_requested: "Request sent", sent: "Message sent", followed_up: "Followed up", replied: "Reply received" };
+let contactUrl = "";
+let briefText = "";
+function node(tag, text, className) {
+  const n = document.createElement(tag);
+  if (text) n.textContent = text;
+  if (className) n.className = className;
+  return n;
+}
+async function checkContact() {
+  const url = (await sourceTab().catch(() => null))?.url || "";
+  el("contact").hidden = !profilePattern.test(url);
+  if (el("contact").hidden) return;
+  if (url !== contactUrl) { contactUrl = url; el("company_url").value = ""; }
+  el("contact-title").className = ""; el("contact-title").textContent = "Checking your records…";
+  try { renderContact(await request(`/extension/contacts/lookup?url=${encodeURIComponent(url)}`)); }
+  catch (error) { el("contact-title").textContent = error.message; }
+}
+function renderContact(found) {
+  el("contact-title").textContent = found.found ? `✓ Already in your records · ${found.records.length} entr${found.records.length === 1 ? "y" : "ies"}` : "Not in your records yet";
+  el("contact-title").className = found.found ? "found" : "";
+  const list = el("contact-records"); list.replaceChildren();
+  if (found.found) {
+    const c = found.contact;
+    list.append(node("p", [c.person, c.company].filter(Boolean).join(" · ") || "Name not recorded", "contact-name"));
+    for (const f of c.fields.slice(0, 4)) list.append(node("p", `${f.label}: ${f.value}`, "contact-field"));
+    for (const r of found.records.slice(0, 4)) list.append(node("p", `${r.workflow_name} · ${r.run_name} · ${actionNames[r.action] || r.action} · ${r.decision}`, "contact-run"));
+  } else list.append(node("p", "Capture them below first; briefs are built from your saved records."));
+  el("brief-form").hidden = !found.found;
+  el("about-hint").hidden = !found.found || found.about_me_set;
+  if (found.brief?.company_url && !el("company_url").value) el("company_url").value = found.brief.company_url;
+  renderBrief(found.brief);
+}
+function renderBrief(saved) {
+  const box = el("brief"); box.replaceChildren(); briefText = "";
+  el("copy-brief").hidden = !saved;
+  el("brief-submit").textContent = saved ? "Regenerate message brief" : "Generate message brief";
+  if (!saved) return;
+  const b = saved.brief, r = saved.research;
+  const sections = [["What they do · from their site", r.facts.map(f => f.fact)], ["Hook", b.hooks], ["Your credential", b.credentials], ["Bridge", b.bridges], ["Soft ask", b.asks], ["Avoid", b.avoid]];
+  const lines = [];
+  for (const [title, items] of sections) {
+    if (!items?.length) continue;
+    const ul = node("ul");
+    for (const item of items) ul.append(node("li", item));
+    box.append(node("h3", title), ul);
+    lines.push(title, ...items.map(i => `- ${i}`), "");
+  }
+  if (r.pages.length) box.append(node("p", `Sources: ${r.pages.join(" · ")}`));
+  if (r.dropped_facts) box.append(node("p", `${r.dropped_facts} company claim(s) dropped: not found on the site.`));
+  if (b.reference_draft) {
+    const details = node("details");
+    details.append(node("summary", "Reference draft · rewrite it in your own words"), node("p", b.reference_draft, "draft"));
+    box.append(details);
+  }
+  briefText = lines.join("\n").trim();
+}
+el("brief-form").addEventListener("submit", async event => {
+  event.preventDefault(); clearError();
+  el("brief-submit").disabled = true; el("brief-submit").textContent = "Researching & generating…";
+  try {
+    renderContact(await request("/extension/contacts/brief", "POST", { url: contactUrl, company_url: el("company_url").value.trim() || null }));
+    el("status").textContent = "Brief ready. Write the note yourself, then log what you sent.";
+  } catch (error) { fail(error); renderBrief(null); }
+  finally { el("brief-submit").disabled = false; }
+});
+el("copy-brief").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText(briefText); el("status").textContent = "Talking points copied."; }
+  catch (error) { fail(error); }
+});
 function modeNotice(url) {
   el("mode-notice").hidden = !isLinkedIn(url);
   el("mode-notice").textContent = "LinkedIn · manual logging only. No HTML, profile text, page title or selected text is read. Enter your own notes; this is not a LinkedIn-approved integration.";
@@ -76,7 +148,8 @@ async function refresh() {
     ({ config = {}, draft = null } = await chrome.storage.local.get(["config", "draft"]));
     el("hide-after-save").checked = !!config.hideAfterSave;
     el("api").value = config.api || "http://127.0.0.1:8000";
-    if (!config.token) { el("settings").open = true; el("session").textContent = "Pair your browser, then start a session in the app."; return; }
+    if (!config.token) { el("settings").open = true; el("contact").hidden = true; el("session").textContent = "Pair your browser, then start a session in the app."; return; }
+    void checkContact();
     session = (await request("/extension/session")).session;
     el("session").textContent = session ? `${session.workflow_name || session.intention} / ${session.run_name || "Current run"} · ${session.state}` : "Start a run in the app, then refresh here.";
     if (session?.state !== "active") return;

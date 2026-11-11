@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { api, ApiError, actionLabels, confirmedActions, duration, rawText, type Overview, type Session, type User, type Workflow } from "@/lib/api";
+import { api, ApiError, actionLabels, confirmedActions, duration, isProfileUrl, rawText, type Overview, type Session, type User, type Workflow } from "@/lib/api";
 import { Auth } from "@/components/auth";
 import { CaptureForm } from "@/components/capture-form";
 import { PairBrowser } from "@/components/pair-browser";
@@ -9,6 +9,7 @@ import { SessionRecap } from "@/components/session-recap";
 import { WorkflowHub } from "@/components/workflow-hub";
 import { RunAI } from "@/components/run-ai";
 import { FilterChips, type ReviewFilter } from "@/components/filter-chips";
+import { ContactBrief } from "@/components/contact-brief";
 
 export default function Home() {
   const [user, setUser] = useState<User | null>(null);
@@ -108,6 +109,7 @@ function Workspace({ user, expired }: { user: User; expired: () => void }) {
             {c.same_raw_text_as && <p className="notice">Same pasted text as another record with a different profile URL, probably a stale clipboard. Check which profile this text belongs to, then re-paste the right text or discard the extra.</p>}
             {c.duplicate_of && <p className="notice">Possible duplicate already in this session. Keep one record; edit its details and discard the extra during review.</p>}
             {c.analysis?.schema_version === 2 && <p className="hint">{c.analysis.method === "llm" ? "AI processed" : "Local fallback"} · {c.analysis.filled_fields.length} fields filled · {c.analysis.preserved_fields.length} existing values preserved{c.analysis.warning ? ` · ${c.analysis.warning}` : ""}</p>}
+            {session.workflow_kind === "contact_outreach" && c.decision !== "discarded" && isProfileUrl(c.details.source_url) && <ContactBrief url={c.details.source_url} />}
             {(session.state === "active" || session.state === "paused") && c.decision === "pending" && <><button className="text-button" onClick={() => setEditingId(editingId === c.id ? null : c.id)}>{editingId === c.id ? "Cancel editing" : "Edit capture"}</button>{editingId === c.id && <CaptureForm sessionId={session.id} capture={c} fields={session.field_definition} editing locked={aiBusy} onDirtyChange={trackDirty} onSaved={async () => { await load(); setEditingId(null); }} />}</>}
             {session.state === "review" && c.decision === "pending" ? <CaptureForm key={`${c.id}-${session.workflow_version}`} sessionId={session.id} capture={c} fields={session.field_definition} compact={(session.captures?.length || 0) > 1} locked={aiBusy} onDirtyChange={trackDirty} onSaved={async () => { await load(); setSelected(await api(`/sessions/${session.id}`)); }} /> : <><a href={c.details.source_url} target="_blank" rel="noreferrer">{c.details.source_title || c.details.source_url} ↗</a>{rawText(c.details) && <details><summary>Raw capture text</summary><blockquote>{rawText(c.details)}</blockquote></details>}<div className="field-chips">{session.field_definition.filter(f => !["contact_url", "person", "company"].includes(f.key) && c.details.fields?.[f.key] != null).map(f => <span key={f.key}><strong>{f.label}:</strong> {String(c.details.fields?.[f.key])}</span>)}</div>{c.decision === "approved" && <span className="hint">Reviewed by you · {c.details.person || "Person unknown"}{c.details.company ? ` · ${c.details.company}` : ""}</span>}</>}
           </article>)}
