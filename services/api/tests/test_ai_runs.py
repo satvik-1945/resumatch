@@ -143,3 +143,18 @@ def test_capture_and_persona_runs_link_back_and_take_feedback(client, other, mon
     assert other.get(f"/api/ai-runs/{run_id}").status_code == 404
     assert other.put(f"/api/ai-runs/{run_id}/feedback", json={"rating": 1}).status_code == 404
     assert runs(other) == []
+
+
+def test_nul_characters_from_the_model_do_not_lose_the_run(client, monkeypatch):
+    # Seen live: the model returned "CTO \u0000 cross-border payouts" for "CTO · cross-border".
+    register(client)
+    s = start(client, workflow(client))
+    c = capture(client, s, notes="Role / headline: CTO · cross-border payouts")
+    fake_provider(monkeypatch, {"fields": {"role": {
+        "value": "CTO \u0000 cross-border payouts",
+        "source_quote": "Role / headline: CTO \u0000 cross-border payouts"}}})
+    result = client.post(f"/api/sessions/{s['id']}/captures/{c['id']}/process-ai")
+    assert result.status_code == 200
+    detail = client.get(f"/api/ai-runs/{result.json()['capture']['analysis']['ai_run_id']}").json()
+    assert detail["status"] == "partial" and detail["rejected"] == ["role"]
+    assert detail["output"]["fields"]["role"]["value"] == "CTO \ufffd cross-border payouts"

@@ -30,6 +30,7 @@ test("outreach record checks the founder workflow and shows a grounded message b
   await page.getByRole("button", { name: "Finish & review" }).click();
   await page.getByRole("button", { name: "Approve record", exact: true }).click();
   await page.getByRole("button", { name: "Complete session", exact: true }).click();
+  await page.getByRole("dialog", { name: "Run completed" }).getByRole("button", { name: /Continue to workspace/ }).click();
 
   await page.getByRole("navigation").getByRole("button", { name: "Workflows" }).click();
   await page.getByRole("button", { name: "Use contact outreach template" }).click();

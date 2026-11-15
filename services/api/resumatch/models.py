@@ -135,6 +135,8 @@ class Workflow(Base):
     description: Mapped[str] = mapped_column(Text, default="", server_default="")
     kind: Mapped[str] = mapped_column(String(40), default="custom")
     version: Mapped[int] = mapped_column(default=1, server_default="1")
+    color: Mapped[str] = mapped_column(String(7), default="#c8ef80", server_default="#c8ef80")
+    __table_args__ = (CheckConstraint("color ~ '^#[0-9a-f]{6}$'", name="workflow_color_hex"),)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

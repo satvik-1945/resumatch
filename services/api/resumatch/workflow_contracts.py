@@ -8,7 +8,7 @@ from typing import Literal
 from urllib.parse import urlsplit
 
 from jsonata import Jsonata
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from resumatch.schemas import Input
 
@@ -29,6 +29,12 @@ class WorkflowWrite(Input):
     kind: Literal["founder_connections", "contact_outreach", "custom"] = "custom"
     fields: list[WorkflowField] = Field(min_length=1, max_length=20)
     expected_version: int | None = Field(default=None, ge=1)
+    color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+
+    @field_validator("color")
+    @classmethod
+    def normalize_color(cls, value):
+        return value.lower() if value else None
 
     @model_validator(mode="after")
     def field_keys(self):

@@ -70,11 +70,25 @@ for (const width of [1440, 390]) {
     await page.getByRole("button", { name: "Approve record" }).click();
     await expect(page.getByText("0 pending · 1 approved")).toBeVisible();
     await page.getByRole("button", { name: "Complete session" }).click();
+    // The completion moment: animated recap with the first-run baseline, then back to the workspace.
+    const moment = page.getByRole("dialog", { name: "Run completed" });
+    await expect(moment.getByRole("heading", { name: "Session complete." })).toBeVisible();
+    await expect(moment).toContainText("Your first reviewed run in this workflow.");
+    await page.waitForTimeout(2200);
+    await moment.screenshot({ path: testInfo.outputPath(`completion-${width}.png`) });
+    await moment.getByRole("button", { name: /Continue to workspace/ }).click();
+    await expect(moment).toBeHidden();
     await expect(page.getByRole("status").filter({ hasText: "Session saved" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Upcoming follow-ups 1" })).toBeVisible();
+    // The day lights up in the workflow's color on the activity calendar.
+    const today = new Date().toISOString().slice(0, 10);
+    await expect(page.locator(`.calendar-day[data-date="${today}"]`)).toHaveClass(/has-activity/);
+    await expect(page.locator(`.calendar-day[data-date="${today}"]`)).toHaveAttribute("aria-label", /1 completed run, 1 approved records/);
+    await page.screenshot({ path: testInfo.outputPath(`today-${width}.png`), fullPage: true });
     const recap = page.getByRole("region", { name: "Session recap" });
-    await expect(recap.getByRole("heading", { name: "You showed up. Here’s the record." })).toBeVisible();
+    await expect(recap.getByRole("heading", { name: "Session complete." })).toBeVisible();
     await expect(recap).toContainText("1 initial send confirmed by you.");
+    await recap.getByText("Source-linked AI observations").click();
     await recap.getByRole("button", { name: "Find AI observations" }).click();
     await expect(recap).toContainText("Your computed recap is still available.");
     const downloadEvent = page.waitForEvent("download");

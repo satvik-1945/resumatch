@@ -33,7 +33,7 @@ test("bulk approve confirms first and skips reused pasted text and confirmed act
   await page.getByRole("button", { name: "Approve all eligible (2)" }).click();
   await expect(page.getByText("3 stay pending for individual review", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
-  await expect(page.getByText("0 approved", { exact: false })).toBeVisible();
+  await expect(page.getByText(/pending · 0 approved/)).toBeVisible();
 
   await page.getByRole("button", { name: "Approve all eligible (2)" }).click();
   await page.getByRole("button", { name: "Yes, approve 2" }).click();

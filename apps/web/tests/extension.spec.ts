@@ -117,7 +117,8 @@ test("real extension captures selected browser context, reviews once, and revoke
     await expect(app.getByRole("textbox", { name: "Company", exact: true })).toHaveValue("Example fintech");
     await app.getByRole("button", { name: "Approve record" }).click();
     await app.getByRole("button", { name: "Complete session" }).click();
-    await expect(app.getByRole("status")).toContainText("1 approved record");
+    await app.getByRole("dialog", { name: "Run completed" }).getByRole("button", { name: /Continue to workspace/ }).click();
+    await expect(app.getByRole("status").filter({ hasText: "Session saved" })).toContainText("1 approved record");
     await expect(app.getByRole("heading", { name: "Upcoming follow-ups 1" })).toBeVisible();
     await app.getByRole("navigation").getByRole("button", { name: "Browser capture" }).click();
     await app.getByRole("button", { name: "Revoke", exact: true }).click();

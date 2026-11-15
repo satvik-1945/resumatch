@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 
+from resumatch.activity import router as activity_router
 from resumatch.ai_runs import router as ai_run_router
 from resumatch.auth import router as auth_router
 from resumatch.briefs import router as brief_router
@@ -18,6 +19,7 @@ app.add_middleware(CORSMiddleware, allow_origin_regex=r"chrome-extension://[a-p]
                    allow_headers=["Authorization", "Content-Type", "X-Extension-ID"])
 app.include_router(auth_router)
 app.include_router(router)
+app.include_router(activity_router)
 app.include_router(workflow_router)
 app.include_router(brief_router)
 app.include_router(ai_run_router)

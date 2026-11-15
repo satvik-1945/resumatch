@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import Field
 from sqlalchemy import select
 
+from resumatch.activity import available_color
 from resumatch.ai_runs import ai_run
 from resumatch.auth import DB, Owner, require_origin
 from resumatch.duplicates import normalized_name, profile_identity
@@ -50,7 +51,8 @@ def validate_fields(db, session, details):
 
 
 def create_workflow(db, user_id, body):
-    item = Workflow(user_id=user_id, name=body.name, description=body.description, kind=body.kind)
+    item = Workflow(user_id=user_id, name=body.name, description=body.description, kind=body.kind,
+                    color=body.color or available_color(db, user_id))
     db.add(item)
     db.flush()
     db.add(WorkflowVersion(workflow_id=item.id, version=1,
@@ -67,6 +69,7 @@ def workflow_view(db, item):
         OutreachSession.workflow_id == item.id, Capture.decision != "discarded"
     )).all()
     return {"id": item.id, "name": item.name, "description": item.description, "kind": item.kind,
+            "color": item.color,
             "version": item.version, "fields": definition["fields"], "record_count": len(records),
             "next_run_name": next_run_name(db, item.id, datetime.now(UTC)),
             "approved_count": sum(c.decision == "approved" for c in records),
@@ -106,6 +109,8 @@ def update_workflow(wid: UUID, body: WorkflowWrite, user: Owner, db: DB):
     if body.expected_version != item.version:
         raise HTTPException(409, "Workflow changed; reload its fields before saving")
     item.name, item.description, item.kind = body.name, body.description, body.kind
+    if body.color is not None:
+        item.color = body.color
     item.version += 1
     db.add(WorkflowVersion(workflow_id=item.id, version=item.version,
                            definition=compile_definition([f.model_dump() for f in body.fields])))

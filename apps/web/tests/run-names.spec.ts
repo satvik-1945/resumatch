@@ -24,6 +24,7 @@ test("repeat same-day runs get incrementing defaults or the name entered at star
     await expect(page.locator(".rename-run").getByLabel("Run name", { exact: true })).toHaveValue(chosen);
     await page.getByRole("button", { name: "Finish & review", exact: true }).click();
     await page.getByRole("button", { name: "Complete session", exact: true }).click();
+    await page.getByRole("dialog", { name: "Run completed" }).getByRole("button", { name: /Continue to workspace/ }).click();
     await expect(startCard.getByRole("button", { name: /Start run/ })).toBeVisible();
   }
   await page.getByRole("navigation").getByRole("button", { name: "Run history" }).click();

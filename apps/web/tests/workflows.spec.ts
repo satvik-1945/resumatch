@@ -36,6 +36,7 @@ for (const width of [1440, 390]) {
     await expect(page.getByLabel("Focus area", { exact: true })).toHaveValue("Fintech");
     await page.getByRole("button", { name: "Approve record", exact: true }).click();
     await page.getByRole("button", { name: "Complete session", exact: true }).click();
+    await page.getByRole("dialog", { name: "Run completed" }).getByRole("button", { name: /Continue to workspace/ }).click();
     await page.getByRole("navigation").getByRole("button", { name: "Workflows" }).click();
     await page.locator(".workflow-card").filter({ hasText: "Synthetic field workflow" }).click();
     await page.getByRole("button", { name: "Start a run", exact: true }).click();

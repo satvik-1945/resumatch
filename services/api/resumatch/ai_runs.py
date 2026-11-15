@@ -84,19 +84,32 @@ def prompt_sha(instruction, output_schema):
     return hashlib.sha256(blob.encode()).hexdigest()
 
 
+def storable(value):
+    """Postgres text/JSONB cannot hold NUL; models occasionally emit it. Keep it visible as �."""
+    if isinstance(value, str):
+        return value.replace("\x00", "\ufffd")
+    if isinstance(value, dict):
+        return {storable(k): storable(v) for k, v in value.items()}
+    if isinstance(value, list | tuple):
+        return [storable(v) for v in value]
+    return value
+
+
 def save(trace):
     sha = None
     with Session(get_engine()) as db:
         if trace.instruction is not None:
             sha = prompt_sha(trace.instruction, trace.output_schema)
             db.execute(insert(AiPrompt).values(
-                sha256=sha, kind=trace.kind, instruction=trace.instruction,
-                output_schema=trace.output_schema or {}).on_conflict_do_nothing())
+                sha256=sha, kind=trace.kind, instruction=storable(trace.instruction),
+                output_schema=storable(trace.output_schema or {})).on_conflict_do_nothing())
         db.add(AiRun(
             id=trace.id, user_id=trace.user_id, kind=trace.kind, subject=trace.subject,
-            status=trace.final_status(), prompt_sha256=sha, model=trace.model, meta=trace.meta,
-            research=trace.research, input=trace.input, output=trace.output, result=trace.result,
-            rejected=trace.rejected, error=trace.error, latency_ms=trace.latency_ms,
+            status=trace.final_status(), prompt_sha256=sha, model=trace.model,
+            meta=storable(trace.meta), research=storable(trace.research),
+            input=storable(trace.input), output=storable(trace.output),
+            result=storable(trace.result), rejected=storable(trace.rejected),
+            error=storable(trace.error), latency_ms=trace.latency_ms,
             prompt_tokens=trace.usage.get("prompt_tokens"),
             completion_tokens=trace.usage.get("completion_tokens")))
         db.commit()

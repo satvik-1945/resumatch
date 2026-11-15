@@ -118,7 +118,7 @@ def ready(db: DB):
     try:
         revision = db.scalar(text("SELECT version_num FROM alembic_version"))
         db.execute(select(OutreachSession.id).limit(0))
-        if revision != "0006_ai_runs":
+        if revision != "0007_workflow_colors":
             raise HTTPException(503, "Run uv run alembic upgrade head")
     except SQLAlchemyError:
         raise HTTPException(503, "Check database connection and run migrations") from None
@@ -254,8 +254,11 @@ def analyze_capture(session_id: UUID, capture_id: UUID, body: SourceRequest, use
     return result
 
 
-def recap_view(recap):
-    return {"payload": recap.payload, "reflection": recap.reflection}
+def recap_view(recap, db, session):
+    from resumatch.activity import recap_progress
+
+    return {"payload": recap.payload, "reflection": recap.reflection,
+            "progress": recap_progress(db, session, recap.payload)}
 
 
 @router.get("/sessions/{session_id}/recap")
@@ -265,7 +268,7 @@ def get_recap(session_id: UUID, user: Owner, db: DB):
         raise HTTPException(409, "Complete the session to see its recap")
     recap = ensure_recap(db, session)  # Lazy snapshot also supports pre-feature completed sessions.
     db.commit()
-    return recap_view(recap)
+    return recap_view(recap, db, session)
 
 
 @router.post("/sessions/{session_id}/recap/analyze", dependencies=writes)
@@ -275,7 +278,7 @@ def recap_analysis(session_id: UUID, user: Owner, db: DB):
         raise HTTPException(409, "Complete the session before generating observations")
     recap = ensure_recap(db, session)
     if recap.reflection and recap.reflection["method"] == "llm":
-        return recap_view(recap)
+        return recap_view(recap, db, session)
     payload = recap.payload
     db.commit()
     with ai_run(user.id, "recap_reflection", str(session_id)) as run:
@@ -285,7 +288,7 @@ def recap_analysis(session_id: UUID, user: Owner, db: DB):
     recap = ensure_recap(db, session)
     recap.reflection = result
     db.commit()
-    return recap_view(recap)
+    return recap_view(recap, db, session)
 
 
 def reject_duplicate(db, session_id, details, exclude_id=None, approved_only=False):
