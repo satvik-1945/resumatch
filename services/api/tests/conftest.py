@@ -19,6 +19,9 @@ os.environ["WEB_ADDITIONAL_ORIGINS"] = '["http://127.0.0.1:3000"]'
 os.environ["REGISTRATION_ENABLED"] = "true"
 os.environ["COOKIE_SECURE"] = "false"
 os.environ["LLM_API_KEY"] = ""
+# Never use the developer's real Google client in tests; inbox tests set their own.
+for key in ("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "EMAIL_TOKEN_KEY"):
+    os.environ[key] = ""
 
 from resumatch.config import get_settings  # noqa: E402
 from resumatch.db import get_engine  # noqa: E402

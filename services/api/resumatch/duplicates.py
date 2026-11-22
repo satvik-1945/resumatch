@@ -38,7 +38,13 @@ def same_subject(left, right):
     if name_a or name_b:
         return False
     x, y = urlsplit(left["source_url"]), urlsplit(right["source_url"])
-    return (x.hostname, x.path.rstrip("/"), x.query) == (y.hostname, y.path.rstrip("/"), y.query)
+    return source_key(x) == source_key(y)
+
+
+def source_key(url):
+    # Gmail puts the message id in the fragment; elsewhere a fragment is just a page anchor.
+    fragment = url.fragment if url.hostname == "mail.google.com" else ""
+    return url.hostname, url.path.rstrip("/"), url.query, fragment
 
 
 def duplicate_of(db, session_id, details, exclude_id=None, approved_only=False):

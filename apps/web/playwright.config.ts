@@ -18,7 +18,7 @@ export default defineConfig({
       command: "uv run uvicorn resumatch.main:app --host 127.0.0.1 --port 8001",
       cwd: "../..",
       url: "http://127.0.0.1:8001/api/health/ready",
-      env: { DATABASE_URL: database, WEB_ORIGIN: "http://localhost:3001", WEB_ADDITIONAL_ORIGINS: '["http://127.0.0.1:3001"]', COOKIE_SECURE: "false", REGISTRATION_ENABLED: "true", LLM_API_KEY: "" },
+      env: { DATABASE_URL: database, WEB_ORIGIN: "http://localhost:3001", WEB_ADDITIONAL_ORIGINS: '["http://127.0.0.1:3001"]', COOKIE_SECURE: "false", REGISTRATION_ENABLED: "true", LLM_API_KEY: "", GOOGLE_CLIENT_ID: "", GOOGLE_CLIENT_SECRET: "", EMAIL_TOKEN_KEY: "" },
       timeout: 60_000,
     },
     {

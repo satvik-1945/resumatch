@@ -63,6 +63,29 @@ def pasted_text_key(details):
     return " ".join(raw_capture_text(details).casefold().split())
 
 
+STALE_PASTE_MIN = 60  # Short notes ("Accepted today") are legitimately reused across people.
+
+
+def reject_stale_paste(db, session_id, details, exclude_id=None):
+    """A long pasted text already saved for a different person is a stale clipboard: refuse it."""
+    key = pasted_text_key(details)
+    if len(key) < STALE_PASTE_MIN:
+        return
+    query = select(Capture).where(Capture.session_id == session_id,
+                                  Capture.decision != "discarded")
+    if exclude_id:
+        query = query.where(Capture.id != exclude_id)
+    earlier = next((c for c in db.scalars(query) if pasted_text_key(c.details) == key
+                    and not same_subject(c.details, details)), None)
+    if earlier:
+        who = earlier.details["person"] or earlier.details["company"] or "another profile"
+        raise HTTPException(409, {
+            "message": f"This is the same text you already saved for {who}. Your clipboard "
+                       "still has the previous profile: copy this profile's text, paste it, "
+                       "and save again.",
+            "existing_capture_id": str(earlier.id)})
+
+
 def session_view(db, s, include_captures=False):
     captures = db.scalars(select(Capture).where(Capture.session_id == s.id)
                          .order_by(Capture.created_at, Capture.id)).all()
@@ -74,6 +97,7 @@ def session_view(db, s, include_captures=False):
               "workflow_id": s.workflow_id, "workflow_version": s.workflow_version,
               "workflow_name": db.get(Workflow, s.workflow_id).name, "run_name": s.run_name,
               "workflow_kind": db.get(Workflow, s.workflow_id).kind,
+              "source": s.source,
               "field_definition": definition_for(db, s)["fields"],
               "target_minutes": s.target_minutes, "elapsed_seconds": elapsed,
               "started_at": s.started_at, "finished_at": s.finished_at,
@@ -118,7 +142,7 @@ def ready(db: DB):
     try:
         revision = db.scalar(text("SELECT version_num FROM alembic_version"))
         db.execute(select(OutreachSession.id).limit(0))
-        if revision != "0007_workflow_colors":
+        if revision != "0008_email_applications":
             raise HTTPException(503, "Run uv run alembic upgrade head")
     except SQLAlchemyError:
         raise HTTPException(503, "Check database connection and run migrations") from None
@@ -130,7 +154,8 @@ def start(body: Start, user: Owner, db: DB):
     # Serialize creation by owner as well as the partial unique DB index.
     db.scalar(select(User).where(User.id == user.id).with_for_update())
     if db.scalar(select(OutreachSession.id).where(
-        OutreachSession.user_id == user.id, OutreachSession.state != "completed"
+        OutreachSession.user_id == user.id, OutreachSession.state != "completed",
+        OutreachSession.source == "manual",
     )):
         raise HTTPException(409, "Finish your current session and review before starting another")
     if body.workflow_id:
@@ -203,6 +228,7 @@ def create_capture(db, user, session_id, body, source):
         raise HTTPException(409, "This session has 200 captures; finish and review it")
     details = validate_fields(db, s, body.details.model_dump(mode="json"))
     reject_duplicate(db, s.id, details)
+    reject_stale_paste(db, s.id, details)
     details["occurred_at"] = details["occurred_at"] or now().isoformat()
     c = Capture(session_id=s.id, request_id=body.request_id, source=source,
                 original=details, details=details)
@@ -311,6 +337,8 @@ def edit_capture(session_id: UUID, capture_id: UUID, body: EditCapture, user: Ow
         raise HTTPException(409, "Only pending captures in an open run can be edited")
     details = validate_fields(db, s, body.details.model_dump(mode="json"))
     reject_duplicate(db, s.id, details, c.id)
+    if pasted_text_key(details) != pasted_text_key(c.details):
+        reject_stale_paste(db, s.id, details, c.id)
     details["occurred_at"] = details["occurred_at"] or c.details["occurred_at"]
     c.details = details
     db.commit()
@@ -384,7 +412,8 @@ def overview(user: Owner, db: DB, offset: int = Query(0, ge=0, le=100000)):
     sessions = db.scalars(select(OutreachSession).where(OutreachSession.user_id == user.id)
                          .order_by(OutreachSession.started_at.desc()).offset(offset).limit(20)).all()
     current = db.scalar(select(OutreachSession).where(
-        OutreachSession.user_id == user.id, OutreachSession.state != "completed"
+        OutreachSession.user_id == user.id, OutreachSession.state != "completed",
+        OutreachSession.source == "manual",
     ))
     week_start = now().replace(hour=0, minute=0, second=0, microsecond=0)
     week_start -= timedelta(days=week_start.weekday())
@@ -463,7 +492,8 @@ def revoke(pairing_id: UUID, user: Owner, db: DB):
 @router.get("/extension/session")
 def browser_session(user: BrowserOwner, db: DB):
     s = db.scalar(select(OutreachSession).where(
-        OutreachSession.user_id == user.id, OutreachSession.state != "completed"
+        OutreachSession.user_id == user.id, OutreachSession.state != "completed",
+        OutreachSession.source == "manual",
     ))
     return {"session": {"id": s.id, "intention": s.intention, "state": s.state,
                         "run_name": s.run_name,

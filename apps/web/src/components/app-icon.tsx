@@ -1,4 +1,4 @@
-export function AppIcon({ name, size = 18 }: { name: "today" | "workflows" | "history" | "browser" | "about" | "ai" | "check" | "arrow"; size?: number }) {
+export function AppIcon({ name, size = 18 }: { name: "today" | "workflows" | "history" | "browser" | "about" | "ai" | "check" | "arrow" | "mail"; size?: number }) {
   const paths = {
     today: "M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6 7 7m10 10 1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0",
     workflows: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z",
@@ -8,6 +8,7 @@ export function AppIcon({ name, size = 18 }: { name: "today" | "workflows" | "hi
     ai: "M3 12h4l3-7 4 14 3-7h4",
     check: "m5 12 4 4L19 6",
     arrow: "M4 12h16m-6-6 6 6-6 6",
+    mail: "M3 6h18v12H3zM3 7l9 6 9-6",
   };
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name]} /></svg>;
 }

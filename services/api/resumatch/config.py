@@ -15,6 +15,11 @@ class Settings(BaseSettings):
     llm_api_key: SecretStr | None = None
     llm_base_url: str = ""
     llm_model: str = ""
+    # Gmail read-only connection (Google Cloud OAuth "Web application" client).
+    google_client_id: str = ""
+    google_client_secret: SecretStr | None = None
+    # Fernet key that encrypts stored Gmail refresh tokens.
+    email_token_key: SecretStr | None = None
 
     @field_validator("llm_base_url")
     @classmethod

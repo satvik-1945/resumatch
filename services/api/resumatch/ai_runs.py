@@ -30,7 +30,8 @@ from resumatch.schemas import Input
 router = APIRouter(prefix="/api")
 writes = [Depends(require_origin)]
 log = logging.getLogger(__name__)
-KINDS = ("capture_fields", "brief", "persona", "source_analysis", "recap_reflection")
+KINDS = ("capture_fields", "brief", "persona", "source_analysis", "recap_reflection",
+         "email_triage")
 STATUSES = ("ok", "partial", "rejected", "provider_error", "fetch_error", "error")
 
 

@@ -11,14 +11,16 @@ from sqlalchemy import select
 from resumatch.duplicates import normalized_name, profile_identity
 from resumatch.models import Capture, SessionRecap
 
-ACTIONS = ("researched", "drafted", "connection_requested", "sent", "followed_up", "replied")
+ACTIONS = ("researched", "drafted", "connection_requested", "sent", "followed_up", "replied",
+           "applied")
 
 
 class ActivitySnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid")
     capture_id: UUID
     action: Literal[
-        "researched", "drafted", "connection_requested", "sent", "followed_up", "replied"
+        "researched", "drafted", "connection_requested", "sent", "followed_up", "replied",
+        "applied"
     ]
     channel: str
     person: str
@@ -79,6 +81,8 @@ def ensure_recap(db, session):
     if counts["replied"]:
         word = "reply" if counts["replied"] == 1 else "replies"
         highlights.append(f"{counts['replied']} {word} recorded by you.")
+    if counts["applied"]:
+        highlights.append(f"{counts['applied']} job applications confirmed by email.")
     if counts["connection_requested"]:
         highlights.append(f"{counts['connection_requested']} connection requests confirmed by you.")
     if not any(counts[k] for k in ("sent", "followed_up", "replied", "connection_requested")):

@@ -86,7 +86,8 @@ def workflow_view(db, item):
 
 @router.get("/workflow-templates")
 def templates(user: Owner):
-    return [template("founder_connections"), template("contact_outreach")]
+    return [template("founder_connections"), template("contact_outreach"),
+            template("job_applications")]
 
 
 @router.get("/workflows")

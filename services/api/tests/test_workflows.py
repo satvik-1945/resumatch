@@ -456,3 +456,35 @@ def test_reused_pasted_text_is_flagged_and_bulk_approve_skips_judgement_calls(cl
     assert (parent["runs"][0]["pending_count"], parent["runs"][0]["approved_count"]) == (4, 1)
     again = client.post(root + "/captures/bulk-approve", json={"capture_ids": [plain["id"]]})
     assert again.json()["skipped"] == [{"id": plain["id"], "reason": "Already reviewed"}]
+
+
+def test_long_text_already_saved_for_another_profile_is_refused(client):
+    # Seen live: a profile's pasted text saved again under the next two profile URLs.
+    register(client)
+    s = start(client, workflow(client))
+    text = ("Noopur Madrosiya · Talent Advisor @ Randstad | Supporting APAC hiring | "
+            "Hyderabad, Telangana, India")
+    first = capture(client, s, notes=text,
+                    source_url="https://www.linkedin.com/in/noopur-madrosiya/")
+    root = f"/api/sessions/{s['id']}/captures"
+    stale = client.post(root, json={"request_id": str(uuid4()), "details": {
+        "source_url": "https://www.linkedin.com/in/meghasaini/", "notes": text}})
+    assert stale.status_code == 409
+    assert "clipboard" in stale.json()["detail"]["message"]
+    assert stale.json()["detail"]["existing_capture_id"] == first["id"]
+    # Short notes are legitimately reused across people.
+    for slug in ("a-person", "b-person"):
+        capture(client, s, notes="Accepted my request today.",
+                source_url=f"https://www.linkedin.com/in/{slug}/")
+    # Editing a record's text into another profile's text is refused the same way.
+    other = capture(client, s, notes="Megha Saini · Recruiter at Example Labs, Delhi, India",
+                    source_url="https://www.linkedin.com/in/meghasaini/")
+    edited = client.put(f"{root}/{other['id']}", json={"details": {
+        **other["details"], "notes": text}})
+    assert edited.status_code == 409
+    # Once the first record is discarded, the text can be saved for the right profile.
+    client.post(f"/api/sessions/{s['id']}/transition", json={"action": "finish"})
+    client.post(f"{root}/{first['id']}/review",
+                json={"decision": "discarded", "details": first["details"]})
+    assert client.put(f"{root}/{other['id']}", json={"details": {
+        **other["details"], "notes": text}}).status_code == 200

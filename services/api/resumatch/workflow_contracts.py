@@ -26,7 +26,9 @@ class WorkflowField(Input):
 class WorkflowWrite(Input):
     name: str = Field(min_length=1, max_length=200)
     description: str = Field(default="", max_length=1000)
-    kind: Literal["founder_connections", "contact_outreach", "custom"] = "custom"
+    kind: Literal[
+        "founder_connections", "contact_outreach", "job_applications", "custom"
+    ] = "custom"
     fields: list[WorkflowField] = Field(min_length=1, max_length=20)
     expected_version: int | None = Field(default=None, ge=1)
     color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
@@ -62,6 +64,23 @@ def template(kind="founder_connections"):
         {"key": "role", "label": "Role / headline", "type": "long_text"},
         {"key": "location", "label": "Location", "type": "text"},
     ]
+    if kind == "job_applications":
+        fields = [
+            {"key": "contact_url", "label": "Email link", "type": "url"},
+            {"key": "person", "label": "Sender", "type": "text",
+             "instruction": "A named recruiter or person, never a platform like LinkedIn."},
+            {"key": "company", "label": "Company", "type": "text",
+             "instruction": "The hiring company named in the email."},
+            {"key": "role", "label": "Role", "type": "text",
+             "instruction": "Job title only if the email states it."},
+            {"key": "applied_via", "label": "Applied via", "type": "text",
+             "instruction": "LinkedIn, a company careers site, a job board, or a recruiter."},
+            {"key": "needs_reply", "label": "Needs your reply", "type": "boolean",
+             "instruction": "True only when the company asks you to do or answer something."},
+        ]
+        return {"name": "Job applications",
+                "description": "Applications and replies found in your connected inboxes.",
+                "kind": kind, "fields": fields}
     if kind == "contact_outreach":
         fields += [
             {"key": "message_context", "label": "Conversation context", "type": "long_text",

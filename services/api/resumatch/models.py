@@ -61,12 +61,17 @@ class OutreachSession(Base):
     workflow_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workflows.id"), index=True)
     workflow_version: Mapped[int] = mapped_column(default=1)
     run_name: Mapped[str] = mapped_column(String(200))
+    # 'email' runs are created by an inbox scan straight into review; they have no timer.
+    source: Mapped[str] = mapped_column(String(20), default="manual", server_default="manual")
     __table_args__ = (
         CheckConstraint("state IN ('active','paused','review','completed')", name="session_state"),
+        CheckConstraint("source IN ('manual','email')", name="session_source"),
         CheckConstraint("elapsed_seconds >= 0", name="session_elapsed"),
         CheckConstraint("target_minutes BETWEEN 5 AND 180", name="session_target"),
         Index("one_open_session", "user_id", unique=True,
-              postgresql_where=text("state != 'completed'")),
+              postgresql_where=text("state != 'completed' AND source = 'manual'")),
+        Index("one_open_inbox_run", "user_id", unique=True,
+              postgresql_where=text("state != 'completed' AND source = 'email'")),
     )
 
 
@@ -88,7 +93,7 @@ class Capture(Base):
     __table_args__ = (
         Index("capture_request_once", "session_id", "request_id", unique=True),
         CheckConstraint("decision IN ('pending','approved','discarded')", name="capture_decision"),
-        CheckConstraint("source IN ('manual','browser')", name="capture_source"),
+        CheckConstraint("source IN ('manual','browser','email')", name="capture_source"),
     )
 
 
@@ -205,4 +210,54 @@ class AiRun(Base):
     __table_args__ = (
         CheckConstraint("rating IN (-1, 1)", name="ai_rating_values"),
         Index("ix_ai_runs_user_created", "user_id", "created_at"),
+    )
+
+
+class EmailAccount(Base):
+    """A Gmail account connected read-only by its owner. The refresh token is Fernet-encrypted."""
+    __tablename__ = "email_accounts"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    email: Mapped[str] = mapped_column(String(320))
+    refresh_token: Mapped[str] = mapped_column(Text)
+    connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),
+                                                   server_default=func.now())
+    last_scanned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+    __table_args__ = (UniqueConstraint("user_id", "email", name="one_account_per_address"),)
+
+
+class OauthState(Base):
+    __tablename__ = "oauth_states"
+    state: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    code_verifier: Mapped[str] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class EmailMessage(Base):
+    """Every message a scan looked at, so ignored mail is never re-read or re-sent to the AI."""
+    __tablename__ = "email_messages"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("email_accounts.id", ondelete="CASCADE")
+    )
+    gmail_id: Mapped[str] = mapped_column(String(64))
+    thread_id: Mapped[str] = mapped_column(String(64))
+    received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sender: Mapped[str] = mapped_column(String(500), default="", server_default="")
+    subject: Mapped[str] = mapped_column(String(1000), default="", server_default="")
+    category: Mapped[str] = mapped_column(String(20))
+    company: Mapped[str] = mapped_column(String(200), default="", server_default="")
+    capture_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("captures.id", ondelete="SET NULL")
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        CheckConstraint("category IN ('application','response','ignored')",
+                        name="email_category"),
+        UniqueConstraint("account_id", "gmail_id", name="one_row_per_message"),
+        Index("ix_email_messages_thread", "account_id", "thread_id"),
     )

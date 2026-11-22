@@ -40,7 +40,8 @@ class Details(Input):
     company: Short = ""
     channel: Literal["linkedin", "email", "x", "web", "other"] = "linkedin"
     action: Literal[
-        "researched", "drafted", "connection_requested", "sent", "followed_up", "replied"
+        "researched", "drafted", "connection_requested", "sent", "followed_up", "replied",
+        "applied"
     ] = "researched"
     notes: str = Field(default="", max_length=16000)
     fields: dict[str, str | int | float | bool | None] = Field(default_factory=dict, max_length=20)

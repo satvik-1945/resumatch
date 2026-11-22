@@ -18,6 +18,9 @@ channel label, not a verified inbox integration. Keep source URLs, unknowns and 
   JSONata, fills empty fields only, and never auto-approves. Do not restore a separate source-text panel.
 - Timer measures session time, not proven focused work. Pauses and restarts must be durable.
 - Capture is explicit: no passive inbox monitoring, automatic sending, or guessed contact facts.
+  The Gmail inbox scan is the one inbox read: user-connected (read-only OAuth), run only on a
+  click, Gmail-side prefiltered to job subjects, metadata + snippet only, never bodies. Its
+  results are pending records; nothing counts until approved.
 - LinkedIn is manual-only: no LinkedIn DOM/title/selection reads or page overlays. Never claim
   platform approval from a lack of HTML modification. See decisions/linkedin-policy.md.
 - Everything is private. Public aliases, maps, groups and sharing come after the first real test.

@@ -123,3 +123,11 @@ def test_legacy_duplicates_preserved_flagged_and_only_one_can_be_approved(client
     client.post(f"/api/sessions/{sid}/transition", json={"action": "complete"})
     fresh = client.post("/api/sessions", json={"intention": "A later follow-up"}).json()["id"]
     assert add(client, fresh).status_code == 201  # Deduplication is session-local.
+
+
+def test_gmail_messages_are_distinct_but_page_anchors_are_not():
+    mail = "https://mail.google.com/mail/u/me@example.com/#all/"
+    assert not same_subject({"source_url": mail + "m1"}, {"source_url": mail + "m2"})
+    assert same_subject({"source_url": mail + "m1"}, {"source_url": mail + "m1"})
+    page = "https://example.com/news"
+    assert same_subject({"source_url": page + "#intro"}, {"source_url": page + "#end"})

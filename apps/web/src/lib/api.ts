@@ -19,11 +19,11 @@ export async function api<T>(path: string, method = "GET", body?: unknown): Prom
   return response.status === 204 ? undefined as T : response.json();
 }
 export type User = { id: string; email: string; weekly_target: number };
-export type Action = "researched" | "drafted" | "connection_requested" | "sent" | "followed_up" | "replied";
+export type Action = "researched" | "drafted" | "connection_requested" | "sent" | "followed_up" | "replied" | "applied";
 // Actions that only count after the user confirms they really happened; never bulk-approved.
 export const confirmedActions: Action[] = ["connection_requested", "sent", "followed_up", "replied"];
 export const actionLabels: Record<Action, string> = {
-  researched: "Researched", drafted: "Drafted", connection_requested: "Connection request sent", sent: "Sent", followed_up: "Followed up", replied: "Reply received",
+  researched: "Researched", drafted: "Drafted", connection_requested: "Connection request sent", sent: "Sent", followed_up: "Followed up", replied: "Reply received", applied: "Applied",
 };
 export type Details = {
   source_url: string; source_title: string; quote: string; person: string; company: string;
@@ -32,7 +32,7 @@ export type Details = {
   fields?: Record<string, string | number | boolean | null>;
 };
 export type Capture = {
-  id: string; details: Details; original: Details; source: "manual" | "browser";
+  id: string; details: Details; original: Details; source: "manual" | "browser" | "email";
   decision: "pending" | "approved" | "discarded"; created_at: string;
   reviewed_at: string | null; followup_done: boolean;
   duplicate_of?: string | null;
@@ -44,7 +44,7 @@ export type Session = {
   state: "active" | "paused" | "review" | "completed";
   elapsed_seconds: number; started_at: string; finished_at: string | null; completed_at: string | null;
   approved_count: number; pending_count: number; counts: Partial<Record<Action, number>>; captures?: Capture[];
-  workflow_id: string; workflow_name: string; workflow_version: number; run_name: string; workflow_kind?: string;
+  workflow_id: string; workflow_name: string; workflow_version: number; run_name: string; workflow_kind?: string; source?: "manual" | "email";
   field_definition: WorkflowField[];
 };
 export type Overview = {
@@ -127,10 +127,10 @@ export type Persona = { headline: string; summary: string; domains: string[]; st
 export type Profile = { about_me: string; resume_text: string; persona: Persona | null };
 export const isProfileUrl = (url: string) => /^https:\/\/([a-z]{2,3}\.)?linkedin\.com\/in\/[^/?#]+|^https:\/\/(www\.)?(x|twitter)\.com\/[A-Za-z0-9_]+\/?(?:[?#]|$)/i.test(url);
 
-export type AiKind = "capture_fields" | "brief" | "persona" | "source_analysis" | "recap_reflection";
+export type AiKind = "capture_fields" | "brief" | "persona" | "source_analysis" | "recap_reflection" | "email_triage";
 export type AiStatus = "ok" | "partial" | "rejected" | "provider_error" | "fetch_error" | "error";
 export const aiKindLabels: Record<AiKind, string> = { capture_fields: "Process with AI", brief: "Message brief", persona: "Persona",
-  source_analysis: "Source analysis", recap_reflection: "Recap observations" };
+  source_analysis: "Source analysis", recap_reflection: "Recap observations", email_triage: "Inbox scan" };
 export const aiStatusLabels: Record<AiStatus, string> = { ok: "OK", partial: "Partly grounded", rejected: "Rejected output",
   provider_error: "Provider error", fetch_error: "Research failed", error: "Error" };
 export type AiRunSummary = { id: string; kind: AiKind; subject: string | null; status: AiStatus; model: string | null; prompt_sha256: string | null;
@@ -148,3 +148,12 @@ export type ActivityMonth = {
   workflows: { id: string; name: string; color: string }[];
   summary: { active_days: number; completed_runs: number; approved_records: number; session_seconds: number };
 };
+
+export type EmailAccount = { id: string; email: string; connected_at: string; last_scanned_at: string | null; last_error: string | null };
+export type EmailResponse = { id: string; decision: "pending" | "approved" | "discarded"; person: string; company: string; subject: string;
+  source_url: string; received_at: string; needs_reply: boolean };
+export type EmailOverview = { configured: boolean; accounts: EmailAccount[]; open_run_id: string | null;
+  counts: { applied: number; applied_this_week: number; applied_to_review: number; responses: number; responses_to_review: number; needs_reply: number };
+  recent_responses: EmailResponse[] };
+export type ScanResult = EmailOverview & { scanned: number; applications: number; responses: number; ignored: number; viewed: number; duplicates: number;
+  warnings: string[]; run_id: string };

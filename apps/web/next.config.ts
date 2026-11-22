@@ -8,6 +8,8 @@ loadEnvConfig(path.resolve(process.cwd(), "../.."));
 const nextConfig: NextConfig = {
   // Browser checks must not contend with an already running local dev server.
   distDir: process.env.RESUMATCH_E2E === "1" ? ".next-e2e" : ".next",
+  // An inbox scan can take minutes; the /api proxy otherwise gives up after 30 s.
+  experimental: { proxyTimeout: 300_000 },
   async rewrites() {
     return [{
       source: "/api/:path*",

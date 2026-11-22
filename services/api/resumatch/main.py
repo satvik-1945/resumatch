@@ -8,6 +8,7 @@ from resumatch.ai_runs import router as ai_run_router
 from resumatch.auth import router as auth_router
 from resumatch.briefs import router as brief_router
 from resumatch.config import get_settings
+from resumatch.inbox import router as inbox_router
 from resumatch.routes import router
 from resumatch.workflows import router as workflow_router
 
@@ -23,6 +24,7 @@ app.include_router(activity_router)
 app.include_router(workflow_router)
 app.include_router(brief_router)
 app.include_router(ai_run_router)
+app.include_router(inbox_router)
 
 
 @app.middleware("http")
